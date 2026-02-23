@@ -1,0 +1,16 @@
+{
+  "ind": [{"name":"age","type":"continuous"}], 
+  "desc": [
+      {"name":"ang","type":"binary"},
+      {"name":"cp","type":"categorical", "n":4},
+      {"name":"ecg","type":"categorical","n":3}],
+  "corr": [
+      {"name":"bp","type":"continuous"},
+      {"name":"chol","type":"continuous"},
+      {"name":"mhr","type":"continuous"},
+      {"name":"st","type":"continuous"},
+      {"name":"fbs","type":"binary"},
+      {"name":"slope","type":"categorical", "n":3}], 
+  "sens": [{"name":"sex","type":"binary"}], 
+  "target": {"name":"cvd","type":"binary"} 
+}

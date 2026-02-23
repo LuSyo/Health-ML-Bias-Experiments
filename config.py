@@ -20,7 +20,7 @@ class Config:
   BATCH_SIZE = 32
   N_EPOCHS = 40
   LEARNING_RATE = 0.01
-  DISTILL_KL_ANN_N = 10
+  DISTILL_KL_ANN = 10
 
   # DCEVAE loss scaling factors
   CORR_RECON_ALPHA = 1
