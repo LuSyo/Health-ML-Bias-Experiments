@@ -1,6 +1,10 @@
 from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix
+import torch
+import numpy as np
+import pandas as pd
 
-def test_dcevae(model, test_loader, device):
+def test_dcevae(model, test_loader, logger, args):
+  device = args.device
   model.eval()
 
   all_y_true, all_y_pred_prob, all_y_cf_prob, all_sens = [], [], [], []
@@ -34,13 +38,15 @@ def test_dcevae(model, test_loader, device):
 
   test_results.head()
 
-  print(f'Test Accuracy: {accuracy_score(test_results['y_true'], test_results['y_pred'])}')
-  print(f'Test AUC: {roc_auc_score(test_results["y_true"], test_results["y_pred_prob"])}')
+  logger.info(f'Test Accuracy: {accuracy_score(test_results['y_true'], test_results['y_pred'])}')
+  logger.info(f'Test AUC: {roc_auc_score(test_results["y_true"], test_results["y_pred_prob"])}')
+
 
   tp, fp, fn, tn = confusion_matrix(test_results['y_true'], test_results['y_pred']).flatten()
   fnr = fn / (fn + tp)
   fpr = fp / (fp + tn)
-  print(f'Test False Negative Rate: {fnr}')
-  print(f'Test False Positive Rate: {fpr}')
+  
+  logger.info(f'Test False Negative Rate: {fnr}')
+  logger.info(f'Test False Positive Rate: {fpr}')
 
   return test_results

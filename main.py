@@ -14,7 +14,23 @@ def main():
   logger = setup_logger(Config.LOG_DIR, args.exp_name)
 
   logger.info(f'EXPERIMENT START: {args.exp_name}')
-  logger.info(f'Device: {Config.DEVICE}')
+  logger.info(f'Device {args.device}')
+  logger.info(f'Data: {args.data}')
+  logger.info(f'Mapping: {args.mapping}')
+  logger.info(f'Batch size: {args.batch_size}')
+  logger.info(f'Epochs: {args.n_epochs}')
+  logger.info(f'Learning rate: {args.lr}')
+  logger.info(f'Distillation KL Annihilation: {args.distill_kl_ann}')
+  logger.info(f'U_corr dimension: {args.uc_dim}')
+  logger.info(f'U_desc dimension: {args.ud_dim}')
+  logger.info(f'Hidden layers dimension: {args.h_dim}')
+  logger.info(f'Activation function: {args.act_fn}')
+  logger.info(f'Corr. recon. loss alpha: {args.corr_a}')
+  logger.info(f'Desc. recon. loss alpha: {args.desc_a}')
+  logger.info(f'Prediction loss alpha: {args.pred_a}')
+  logger.info(f'Fair loss beta: {args.fair_b}')
+  logger.info(f'TC loss beta: {args.tc_b}')
+
   logger.info('='*30)
 
   try:
@@ -45,6 +61,12 @@ def main():
     )
 
     logger.info(f'END EXPERIMENT {args.exp_name}')  
+
+    # TODO Training / Validation loss plot
+    # TODO Discriminator / TC Loss plot
+    # TODO KL Loss plot
+
+    test_dcevae(model, test_loader, logger, args)
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
