@@ -1,6 +1,6 @@
 import torch
 import pandas as pd
-from config import Config
+from src.config import Config
 from src.data_loader import make_bucketed_loader
 from src.model import DCEVAE
 from src.train import train_dcevae

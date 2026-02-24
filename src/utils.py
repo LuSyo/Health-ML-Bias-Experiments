@@ -1,5 +1,5 @@
 import argparse
-from config import Config
+from src.config import Config
 import datetime
 import os
 import json
