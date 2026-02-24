@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pandas as pd
 import os
 from src.config import Config
 
@@ -44,3 +43,4 @@ def distillation_loss_curve(training_metrics, args):
   plt.savefig(f'{fig_path}/distillation_loss_curve.png')
 
   plt.show()
+
