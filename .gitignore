@@ -1,6 +1,14 @@
 # data
 data/
 
+# models
+models/
+
+# results
+results/
+
+# logs
+logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

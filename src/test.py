@@ -36,8 +36,6 @@ def test_dcevae(model, test_loader, logger, args):
   })
   test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
 
-  test_results.head()
-
   logger.info(f'Test Accuracy: {accuracy_score(test_results['y_true'], test_results['y_pred'])}')
   logger.info(f'Test AUC: {roc_auc_score(test_results["y_true"], test_results["y_pred_prob"])}')
 

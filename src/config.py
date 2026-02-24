@@ -28,8 +28,3 @@ class Config:
   PRED_ALPHA = 10
   FAIR_BETA = 1
   TC_BETA = 1
-  
-os.makedirs(Config.MODELS_DIR, exist_ok=True)
-os.makedirs(Config.DATA_DIR, exist_ok=True)
-os.makedirs(Config.LOG_DIR, exist_ok=True)
-os.makedirs(Config.RESULTS_DIR, exist_ok=True)

@@ -32,6 +32,8 @@ def parse_args():
 
   parser.add_argument('--exp_name', type=str, default=date_str)
 
+  parser.add_argument('--root_dir', type=str, default='')
+
   parser.add_argument('--device', type=str, default=Config.DEVICE)
 
   return parser.parse_args()
