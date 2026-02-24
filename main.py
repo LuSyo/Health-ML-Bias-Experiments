@@ -6,6 +6,7 @@ from src.model import DCEVAE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
+from src.plots import train_val_loss_curve, disc_tc_loss_curve, distillation_loss_curve
 
 def main():
   args = parse_args()
@@ -62,9 +63,11 @@ def main():
 
     logger.info(f'END EXPERIMENT {args.exp_name}')  
 
-    # TODO Training / Validation loss plot
-    # TODO Discriminator / TC Loss plot
-    # TODO KL Loss plot
+    training_metrics = pd.DataFrame(training_log)
+
+    train_val_loss_curve(training_metrics, args)
+    disc_tc_loss_curve(training_metrics, args)
+    distillation_loss_curve(training_metrics, args)
 
     test_dcevae(model, test_loader, logger, args)
 
