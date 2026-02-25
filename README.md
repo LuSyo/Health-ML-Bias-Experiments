@@ -25,10 +25,18 @@ To operationalize this, observed features are categorised based on their relatio
 * **$X_{corr}$ (Baseline clinical covariates):** Features preceding the sociological component, such as biological markers or baseline clinical measurements
 * **$X_{desc}$ (Sociologically-influenced features):** Descendants of the sociological component susceptible to systemic bias, such as clinician interpretations or reported symptoms
 
-### Methodology: DCEVAE
-We employ the **Disentangled Causal Effect Variational Autoencoder (DCEVAE)** architecture (Kim et al., 2021) to disentangle exogenous uncertainty into two latent variables:
+### Methodology: CEVAE-HE
+We propose the Causal Effect Variational Autoencoder for Health Equity (CEVAE-HE) architecture, built upon the Disentangled Causal Effect Variational Autoencoder (DCEVAE) (Kim et al., 2021). The neural network disentangles exogenous uncertainty into two latent variables:
 1.  **$U_{desc}$:** Exogenous factors independent of the protected attribute
 2.  **$U_{corr}$:** Exogenous factors correlated with the protected attribute without causality
+
+![CEVAE-HE network in training](/media/DCEVAE-Training.jpg)
+*A. Min phase: the network's objective is to minimise the total VAE loss. B. Max phase: the discriminator's objective is to maximise its ability to discriminate between real and permuted samples.*
+
+The architecture comprises two primary encoder networks that map the observed features to the disentangled latent spaces $U_desc$ and $U_corr$, alongside decoder networks tasked with reconstructing the original features and predicting the outcome. To ensure effective disentanglement, the model incorporates an adversarial discriminator network that penalises any mutual information between the "fair" latent space and the protected attribute.
+
+The CEVAE-HE model operates on a min-max objective structure. The encoders and decoders are trained to minimize a modified Evidence Lower Bound (ELBO) for accurate data reconstruction, alongside a Total Correlation loss that forces $U_{desc}$ and $U_{corr}$ to remain statistically independent to each other and $U_desc$ to be independent of the protected attribute, and a Fairness loss maximising counterfactual fairness. Simultaneously, the discriminator is adversarially trained to maximize its ability to distinguish samples from the joint distribution $q(a,u_{desc},u_{corr})$ from samples drawn from the marginal distributions $q(a,u_{desc})q(u_{corr})$ (simulated with shuffled $(a, [u_{desc},u_{corr}])$ pairs).
+
 
 ---
 
