@@ -1,14 +1,15 @@
-from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix
 import torch
 import numpy as np
 import pandas as pd
-from src.metrics import calculate_performance_metrics
+from src.metrics import calculate_performance_metrics, stratified_perf
 
 def test_dcevae(model, test_loader, logger, args):
+
   device = args.device
   model.eval()
 
-  all_y_true, all_y_pred_prob, all_y_cf_prob, all_sens = [], [], [], []
+  all_y_true, all_y_pred_prob, all_y_cf_prob, all_sens, all_u_corr, all_u_desc = \
+    [], [], [], [],[], []
 
   with torch.no_grad():
     for batch in test_loader:
@@ -28,12 +29,16 @@ def test_dcevae(model, test_loader, logger, args):
       all_y_pred_prob.append(torch.sigmoid(y_pred_prob).cpu().numpy())
       all_y_cf_prob.append(torch.sigmoid(y_cf_prob).cpu().numpy())
       all_sens.append(x_sens.cpu().numpy())
-
+      all_u_corr.append(u_corr.cpu().numpy())
+      all_u_desc.append(u_desc.cpu().numpy())
+  
   test_results = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),
       'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
       'y_cf_prob': np.concatenate(all_y_cf_prob).flatten(),
-      'sens': np.concatenate(all_sens).flatten()
+      'sens': np.concatenate(all_sens).flatten(),
+      'u_corr': list(np.concatenate(all_u_corr)),
+      'u_desc': list(np.concatenate(all_u_desc)),
   })
   test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
 
@@ -41,10 +46,18 @@ def test_dcevae(model, test_loader, logger, args):
     test_results['y_true'],
     test_results['y_pred'],
     test_results['y_pred_prob'])
+  
+  strat_perf_metrics = stratified_perf(
+    test_results['y_true'],
+    test_results['y_pred'],
+    test_results['y_pred_prob'],
+    test_results['sens'],
+  )
 
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
   logger.info(f'Test AUC: {perf_metrics['roc_auc']:.4f}')
+  logger.info(f'Test Brier Score: {perf_metrics['brier_score']:.4f}')
   logger.info(f'Test False Negative Rate: {perf_metrics['fnr']:.4f}')
   logger.info(f'Test False Positive Rate: {perf_metrics['fpr']:.4f}')
 
-  return test_results
+  return test_results, perf_metrics, strat_perf_metrics

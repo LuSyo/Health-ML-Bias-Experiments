@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.optim as optim
+import os
 from src.config import Config
 
 def train_dcevae(model, train_loader, val_loader, logger, args):
@@ -94,14 +95,15 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     logger.info(f'Avg VAE Train Loss: {avg_train_loss}')
     logger.info(f'Avg VAE Validation Loss: {avg_val_loss}')
   
-  model_path = f'{args.root_dir}{Config.MODELS_DIR}{args.exp_name}_dcevae.pth'
+  model_path = f'{args.root_dir}{Config.MODELS_DIR}'
+  os.makedirs(model_path, exist_ok=True)
   torch.save({
     'epoch': args.n_epochs,
     'model_state_dict': model.state_dict(),
     'optimizer_main_state_dict': main_optimiser.state_dict(),
     'discrim_optim_state_dict': discrim_optimiser.state_dict(),
     'args': args
-  }, model_path)
+  }, f'{model_path}{args.exp_name}_dcevae.pth')
   logger.info(f'DCEVAE model saved to {model_path}')
   
   return training_log, epoch_metrics_log

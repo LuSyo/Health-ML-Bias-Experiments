@@ -1,5 +1,6 @@
-import torch
 import pandas as pd
+import numpy as np
+import os
 from src.config import Config
 from src.data_loader import make_bucketed_loader
 from src.model import DCEVAE
@@ -7,9 +8,13 @@ from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
 from src.plots import train_val_loss_curve, disc_tc_loss_curve, distillation_loss_curve
+from src.metrics import get_cca
 
 def main():
   args = parse_args()
+
+  results_path = f'{args.root_dir}{Config.RESULTS_DIR}{args.exp_name}'
+  os.makedirs(results_path, exist_ok=True)
 
   # Initialise logger
   logger = setup_logger(Config.LOG_DIR, args.exp_name)
@@ -65,11 +70,23 @@ def main():
 
     training_metrics = pd.DataFrame(training_log)
 
-    train_val_loss_curve(training_metrics, args)
-    disc_tc_loss_curve(training_metrics, args)
-    distillation_loss_curve(training_metrics, args)
+    train_val_loss_fig = train_val_loss_curve(training_metrics, args)
+    train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png')
+    disc_tc_loss_fig = disc_tc_loss_curve(training_metrics, args)
+    disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png')
+    distillation_loss_fig = distillation_loss_curve(training_metrics, args)
+    distillation_loss_fig.savefig(f'{results_path}/distillation_loss_curve.png')
 
-    test_dcevae(model, test_loader, logger, args)
+    test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
+
+    strat_perf_metrics.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
+
+    # CAUSAL MODEL VALIDATION
+    # Independence of u_desc and u_corr
+    u_desc_matrix = np.stack(test_results['u_desc'].values)
+    u_corr_matrix = np.stack(test_results['u_corr'].values)
+    u_u_cca = get_cca(u_desc_matrix, u_corr_matrix)
+    logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca}')
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
