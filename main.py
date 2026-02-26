@@ -7,7 +7,7 @@ from src.model import DCEVAE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
-from src.plots import train_val_loss_curve, disc_tc_loss_curve, distillation_loss_curve
+from src.plots import train_val_loss_curve, disc_tc_loss_curve, distillation_loss_curve, KL_loss_curve
 from src.metrics import get_cca
 
 def main():
@@ -25,7 +25,8 @@ def main():
   logger.info(f'Mapping: {args.mapping}')
   logger.info(f'Batch size: {args.batch_size}')
   logger.info(f'Epochs: {args.n_epochs}')
-  logger.info(f'Learning rate: {args.lr}')
+  logger.info(f'VAE learning rate: {args.vae_lr}')
+  logger.info(f'Discriminator learning rate: {args.disc_lr}')
   logger.info(f'Distillation KL Annihilation: {args.distill_kl_ann}')
   logger.info(f'U_corr dimension: {args.uc_dim}')
   logger.info(f'U_desc dimension: {args.ud_dim}')
@@ -70,12 +71,14 @@ def main():
 
     training_metrics = pd.DataFrame(training_log)
 
-    train_val_loss_fig = train_val_loss_curve(training_metrics, args)
+    train_val_loss_fig = train_val_loss_curve(training_metrics)
     train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png')
-    disc_tc_loss_fig = disc_tc_loss_curve(training_metrics, args)
+    disc_tc_loss_fig = disc_tc_loss_curve(training_metrics)
     disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png')
-    distillation_loss_fig = distillation_loss_curve(training_metrics, args)
+    distillation_loss_fig = distillation_loss_curve(training_metrics)
     distillation_loss_fig.savefig(f'{results_path}/distillation_loss_curve.png')
+    KL_loss_fig = KL_loss_curve(training_metrics)
+    KL_loss_fig.savefig(f'{results_path}/KL_loss_curve.png')
 
     test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
 

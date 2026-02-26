@@ -124,10 +124,13 @@ class DCEVAE(nn.Module):
     self.discriminator = nn.Sequential(
         nn.Linear(self.u_dim + self.sens_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
+        nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
+        nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
+        nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, 2)
     )
 
@@ -309,7 +312,7 @@ class DCEVAE(nn.Module):
     logvar1_clamped = torch.clamp(logvar1, -10.0, 10.0)
     logvar2_clamped = torch.clamp(logvar2, -10.0, 10.0)
 
-    kl_div = 0.5 * torch.sum(logvar2 - logvar1 +
+    kl_div = 0.5 * torch.sum(logvar2_clamped - logvar1_clamped +
      (torch.exp(logvar1) + (mu1 - mu2)**2)* torch.exp(-logvar2) - 1)
 
     return kl_div / mu1.size(0)
@@ -328,7 +331,9 @@ class DCEVAE(nn.Module):
     u_desc_det = u_desc.detach()
     u_corr_det = u_corr.detach()
     input_disc = torch.cat((u_desc_det, u_corr_det, x_sens_p), dim=1)
-    disc_logits = self.discriminator(input_disc)
+    disc_logits = self.discriminator(input_disc) # 1= real samples, 0= permuted samples
+    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
+    target_perm = torch.zeros(sample_size, dtype=torch.long).to(self.device)
 
     # Prepare permuted samples
     permuted_indices = np.random.permutation(u_desc.size(0))
@@ -339,13 +344,11 @@ class DCEVAE(nn.Module):
     disc_logits_permuted = self.discriminator(input_disc_permuted)
 
     # Calculate the TC loss to minimise for the VAE
-    log_probs = torch.log_softmax(disc_logits, dim=1)
-    tc_L = (log_probs[:, 1] - log_probs[:, 0]).mean()
+    # Aim for the discriminator to be wrong for all real samples
+    tc_L = nn.CrossEntropyLoss()(disc_logits, target_perm) + nn.CrossEntropyLoss()(disc_logits_permuted, target_real)
 
     # Calculate the discriminator loss
-    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
-    target_fake = torch.zeros(sample_size, dtype=torch.long).to(self.device)
-    disc_L = nn.CrossEntropyLoss()(disc_logits, target_real) + nn.CrossEntropyLoss()(disc_logits_permuted, target_fake)
+    disc_L = nn.CrossEntropyLoss()(disc_logits, target_real) + nn.CrossEntropyLoss()(disc_logits_permuted, target_perm)
 
     return tc_L, disc_L
 
@@ -355,7 +358,8 @@ class DCEVAE(nn.Module):
     fair_L = torch.sum(torch.norm(y_cf_sig - y_p_sig, p=2, dim=1))/y_cf_sig.size(0)
     return fair_L
 
-  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, distill_weight=0):
+  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
+                     distill_weight=0, kl_weight=1.0, tc_weight=1.0):
 
     # Encode
     mu_corr, logvar_corr, mu_desc, logvar_desc = self.encode(
@@ -395,7 +399,7 @@ class DCEVAE(nn.Module):
 
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
-    total_vae_loss = recon_L + distill_weight*distill_L + kl_L + self.args.tc_b*tc_L + self.args.fair_b*fair_L
+    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
     return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L
 

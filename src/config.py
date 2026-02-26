@@ -19,8 +19,12 @@ class Config:
   # DCEVAE training hyperparameters
   BATCH_SIZE = 32
   N_EPOCHS = 40
-  LEARNING_RATE = 0.01
+  VAE_LR = 0.01
+  DISC_LR = 0.01
   DISTILL_KL_ANN = 10
+  KL_WARM_UP = 20
+  TC_WARM_UP = 30
+  DISC_STEP = 5
 
   # DCEVAE loss scaling factors
   CORR_RECON_ALPHA = 1

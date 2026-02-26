@@ -16,8 +16,12 @@ def parse_args():
 
   parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)
   parser.add_argument('--n_epochs', type=int, default=Config.N_EPOCHS)
-  parser.add_argument('--lr', type=float, default=Config.LEARNING_RATE)
+  parser.add_argument('--vae_lr', type=float, default=Config.VAE_LR)
+  parser.add_argument('--disc_lr', type=float, default=Config.DISC_STEP)
   parser.add_argument('--distill_kl_ann', type=int, default=Config.DISTILL_KL_ANN)
+  parser.add_argument('--kl_warm_up', type=int, default=Config.KL_WARM_UP)
+  parser.add_argument('--tc_warm_up', type=int, default=Config.TC_WARM_UP)
+  parser.add_argument('--disc_step', type=int, default=Config.DISC_STEP)
 
   parser.add_argument('--seed', type=int, default=Config.SEED)
   parser.add_argument('--uc_dim', type=int, default=Config.UC_DIM)

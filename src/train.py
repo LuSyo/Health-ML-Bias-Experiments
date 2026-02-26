@@ -4,6 +4,11 @@ import torch.optim as optim
 import os
 from src.config import Config
 
+def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
+  if epoch < warm_up_epochs:
+    return (epoch / warm_up_epochs) * loss_weight
+  return loss_weight
+
 def train_dcevae(model, train_loader, val_loader, logger, args):
   device = args.device
   model.to(device)
@@ -11,8 +16,8 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
   discrim_params = [param for name, param in model.named_parameters() if 'discriminator' in name]
   main_params = [param for name, param in model.named_parameters() if 'discriminator' not in name]
-  discrim_optimiser = optim.Adam(discrim_params, lr=args.lr)
-  main_optimiser = optim.Adam(main_params, lr=args.lr)
+  discrim_optimiser = optim.Adam(discrim_params, lr=args.disc_lr)
+  main_optimiser = optim.Adam(main_params, lr=args.vae_lr)
 
   training_log = []
   epoch_metrics_log = []
@@ -21,10 +26,11 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     logger.info(f'--- Start Epoch {epoch}')
 
     epoch_metrics = {
-        'elbo': [],
+        'total_vae_loss': [],
         'desc_recon_L': [],
         'corr_recon_L': [],
         'y_recon_L': [],
+        'kl_L': [],
         'tc_L': [],
         'fair_L': [],
         'disc_L': [],
@@ -41,9 +47,12 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       main_optimiser.zero_grad()
 
       # Forward pass and loss calculation
-      distill_weight = 0 if epoch < args.distill_kl_ann else 1
-      elbo, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L \
-        = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, distill_weight)
+      distill_weight = get_anneal_weight(epoch, args.distill_kl_ann, 1.0)
+      kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
+      tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
+      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L \
+        = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
+                               distill_weight, kl_weight, tc_weight)
 
       # Discriminator backpropagation
       disc_L.backward(retain_graph=True)
@@ -52,42 +61,44 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       main_optimiser.zero_grad()
 
       # VAE backpropagation
-      elbo.backward()
+      total_vae_loss.backward()
 
       # Step both optimisers
       discrim_optimiser.step()
       main_optimiser.step()
 
       # Log metrics
-      epoch_metrics['elbo'].append(elbo.item())
+      epoch_metrics['total_vae_loss'].append(total_vae_loss.item())
       epoch_metrics['desc_recon_L'].append(desc_recon_L.item())
       epoch_metrics['corr_recon_L'].append(corr_recon_L.item())
       epoch_metrics['y_recon_L'].append(y_recon_L.item())
+      epoch_metrics['kl_L'].append(kl_L.item())
       epoch_metrics['tc_L'].append(tc_L.item())
       epoch_metrics['fair_L'].append(fair_L.item())
       epoch_metrics['disc_L'].append(disc_L.item())
       epoch_metrics['distill_L'].append(distill_L.item())
 
     # Epoch summary
-    avg_train_loss = np.mean(epoch_metrics['elbo'])
-    training_log.append({'avg_train_loss':avg_train_loss})
+    avg_train_loss = np.mean(epoch_metrics['total_vae_loss'])
+    training_log.append({'avg_train_loss': avg_train_loss})
 
     training_log[-1]['avg_disc_loss'] = np.mean(epoch_metrics["disc_L"])
     training_log[-1]['avg_tc_loss'] = np.mean(epoch_metrics["tc_L"])
+    training_log[-1]['avg_kl_loss'] = np.mean(epoch_metrics["kl_L"])
     training_log[-1]['avg_fair_loss'] = np.mean(epoch_metrics["fair_L"])
     training_log[-1]['avg_distill_loss'] = np.mean(epoch_metrics["distill_L"])
 
     # Validation
     model.eval()
-    val_elbo = []
+    val_vae_loss = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
         x_ind, x_desc, x_corr, x_sens, y =\
           [tensor.to(device) for tensor in batch[:5]]
-        v_elbo, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y)
-        val_elbo.append(v_elbo.item())
+        v_vae_loss, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y)
+        val_vae_loss.append(v_vae_loss.item())
 
-    avg_val_loss = np.mean(val_elbo)
+    avg_val_loss = np.mean(val_vae_loss)
     training_log[-1]['avg_val_loss'] = avg_val_loss
 
     epoch_metrics_log.append(epoch_metrics)
