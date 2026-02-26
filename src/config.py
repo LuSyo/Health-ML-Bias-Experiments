@@ -11,9 +11,9 @@ class Config:
   SEED = 4
 
   # DCEVAE architecture
-  UC_DIM = 12
-  UD_DIM = 12
-  H_DIM = 5
+  UC_DIM = 8
+  UD_DIM = 8
+  H_DIM = 32
   ACT_FN = 'relu'
 
   # DCEVAE training hyperparameters
