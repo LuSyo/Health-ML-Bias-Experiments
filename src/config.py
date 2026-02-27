@@ -21,7 +21,7 @@ class Config:
   N_EPOCHS = 40
   VAE_LR = 0.01
   DISC_LR = 0.01
-  DISTILL_KL_ANN = 10
+  DISTILL_WARM_UP = 10
   KL_WARM_UP = 20
   TC_WARM_UP = 30
   DISC_STEP = 5

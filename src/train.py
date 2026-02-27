@@ -47,7 +47,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       main_optimiser.zero_grad()
 
       # Forward pass and loss calculation
-      distill_weight = get_anneal_weight(epoch, args.distill_kl_ann, 1.0)
+      distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
       total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L \
