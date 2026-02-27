@@ -7,7 +7,7 @@ from src.model import DCEVAE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
-from src.plots import train_val_loss_curve, disc_tc_loss_curve, distillation_loss_curve, KL_loss_curve
+from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve
 from src.metrics import get_cca
 
 def main():
@@ -77,10 +77,8 @@ def main():
     train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png')
     disc_tc_loss_fig = disc_tc_loss_curve(training_metrics)
     disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png')
-    distillation_loss_fig = distillation_loss_curve(training_metrics)
-    distillation_loss_fig.savefig(f'{results_path}/distillation_loss_curve.png')
-    KL_loss_fig = KL_loss_curve(training_metrics)
-    KL_loss_fig.savefig(f'{results_path}/KL_loss_curve.png')
+    all_VAE_losses_fig = all_VAE_losses_curve(training_metrics)
+    all_VAE_losses_fig.savefig(f'{results_path}/VAE_losses_curve.png')
 
     test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
 

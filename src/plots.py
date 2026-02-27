@@ -44,3 +44,25 @@ def KL_loss_curve(training_metrics, show=False):
   if show: plt.show()
 
   return fig
+
+def all_VAE_losses_curve(training_metrics, show=False):
+
+  fig, ax = plt.subplots(figsize=(8, 3))
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
+               label="Effective X_desc Recon. Loss", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_corr_recon_loss'], 
+               label="Effective X_corr Recon. Loss", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
+               label="Effective Y Pred. Loss", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], 
+               label="Effective KL Loss", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
+               label="Effective Distillation Loss", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
+               label="Effective TC Loss", ax=ax)
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss')
+
+  if show: plt.show()
+
+  return fig

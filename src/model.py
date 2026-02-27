@@ -388,11 +388,11 @@ class DCEVAE(nn.Module):
         u_desc, u_corr, x_ind, x_sens)
 
     # Reconstruction & prediction loss
-    desc_recon_L = self.reconstruction_loss(x_desc_pred, x_desc, self.desc_meta)
-    corr_recon_L = self.reconstruction_loss(x_corr_pred, x_corr, self.corr_meta)
-    y_recon_L = nn.BCEWithLogitsLoss()(y_pred, y)
+    desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_pred, x_desc, self.desc_meta)
+    corr_recon_L = self.args.corr_a * self.reconstruction_loss(x_corr_pred, x_corr, self.corr_meta)
+    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred, y)
 
-    recon_L = self.args.desc_a*desc_recon_L + self.args.corr_a*corr_recon_L + self.args.pred_a*y_recon_L
+    recon_L = desc_recon_L + corr_recon_L + y_recon_L
 
     # KL loss
     kl_L = self.kl_loss(mu_corr, logvar_corr) + self.kl_loss(mu_desc, logvar_desc)
@@ -414,5 +414,5 @@ class DCEVAE(nn.Module):
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
     total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
-    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L
+    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L
 

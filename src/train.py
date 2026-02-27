@@ -88,6 +88,9 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_kl_loss'] = np.mean(epoch_metrics["kl_L"])
     training_log[-1]['avg_fair_loss'] = np.mean(epoch_metrics["fair_L"])
     training_log[-1]['avg_distill_loss'] = np.mean(epoch_metrics["distill_L"])
+    training_log[-1]['avg_desc_recon_loss'] = np.mean(epoch_metrics["desc_recon_L"])
+    training_log[-1]['avg_corr_recon_loss'] = np.mean(epoch_metrics["corr_recon_L"])
+    training_log[-1]['avg_y_recon_loss'] = np.mean(epoch_metrics["y_recon_L"])
 
     # Validation
     model.eval()
