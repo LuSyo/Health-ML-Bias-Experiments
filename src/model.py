@@ -317,7 +317,7 @@ class DCEVAE(nn.Module):
 
     return kl_div / mu1.size(0)
 
-  def tc_loss(self, u_desc, u_corr, x_sens):
+  def tc_loss(self, u_desc, u_corr, x_sens, u_desc_2, u_corr_2, x_sens_2):
     '''
       Calculates the Total Correlation loss to minimise for the VAE and the \
       discriminator loss
@@ -326,21 +326,26 @@ class DCEVAE(nn.Module):
 
     # Process raw tensors
     x_sens_p = self._process_features(x_sens, self.sens_meta)
+    x_sens_2_p = self._process_features(x_sens_2, self.sens_meta)
 
-    # Run the discriminator on factual samples
+    # Detach U tensors
     u_desc_det = u_desc.detach()
     u_corr_det = u_corr.detach()
+    u_desc_2_det = u_desc_2.detach()
+    u_corr_2_det = u_corr_2.detach()
+
+    # Run the discriminator on factual samples
     input_disc = torch.cat((u_desc_det, u_corr_det, x_sens_p), dim=1)
     disc_logits = self.discriminator(input_disc) # 1= real samples, 0= permuted samples
     target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
     target_perm = torch.zeros(sample_size, dtype=torch.long).to(self.device)
 
-    # Prepare permuted samples
+    # Prepare U_desc permuted samples from the pre-premuted batch
     permuted_indices = np.random.permutation(u_desc.size(0))
-    u_desc_permuted = u_desc_det[permuted_indices]
+    u_desc_2_permuted = u_desc_2_det[permuted_indices]
 
     # Run the discriminator on permuted samples
-    input_disc_permuted = torch.cat((u_desc_permuted, u_corr_det, x_sens_p), dim=1)
+    input_disc_permuted = torch.cat((u_desc_2_permuted, u_corr_2_det, x_sens_2_p), dim=1)
     disc_logits_permuted = self.discriminator(input_disc_permuted)
 
     # Calculate the TC loss to minimise for the VAE
@@ -359,6 +364,7 @@ class DCEVAE(nn.Module):
     return fair_L
 
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
+                     x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                      distill_weight=0, kl_weight=1.0, tc_weight=1.0):
 
     # Encode
@@ -392,7 +398,14 @@ class DCEVAE(nn.Module):
     kl_L = self.kl_loss(mu_corr, logvar_corr) + self.kl_loss(mu_desc, logvar_desc)
 
     # TC loss
-    tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens)
+    # Pass the permuted batch through the network
+    mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
+        x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2)
+    u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
+    u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
+
+    tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens,
+                                u_desc_2, u_corr_2, x_sens_2)
 
     # Counterfactual fairness loss
     fair_L = self.fair_loss(y_pred, y_cf)

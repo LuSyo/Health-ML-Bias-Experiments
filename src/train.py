@@ -39,8 +39,8 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
     model.train()
     for i, batch in enumerate(train_loader):
-      x_ind, x_desc, x_corr, x_sens, y =\
-      [tensor.to(device) for tensor in batch[:5]]
+      x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2 =\
+      [tensor.to(device) for tensor in batch]
 
       # Reset optimiser gradients
       discrim_optimiser.zero_grad()
@@ -52,6 +52,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
       total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
+                               x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight)
 
       # Discriminator backpropagation
@@ -93,9 +94,10 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     val_vae_loss = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
-        x_ind, x_desc, x_corr, x_sens, y =\
-          [tensor.to(device) for tensor in batch[:5]]
-        v_vae_loss, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y)
+        x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2=\
+          [tensor.to(device) for tensor in batch]
+        v_vae_loss, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y,
+                                              x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2)
         val_vae_loss.append(v_vae_loss.item())
 
     avg_val_loss = np.mean(val_vae_loss)
