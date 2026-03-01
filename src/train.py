@@ -11,6 +11,13 @@ def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
     return (epoch / warm_up_epochs) * loss_weight
   return loss_weight
 
+def get_mean_grad_norm(model):
+  norms = []
+  for param in model.parameters():
+      if param.grad is not None:
+          norms.append(param.grad.norm(2).item())
+  return np.mean(norms)
+
 def train_dcevae(model, train_loader, val_loader, logger, args):
   device = args.device
   model.to(device)
@@ -36,7 +43,14 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
         'tc_L': [],
         'fair_L': [],
         'disc_L': [],
-        'distill_L': []
+        'distill_L': [],
+    }
+
+    epoch_grad_norms = {
+        'disc_input_grad_norm': [],
+        'disc_output_grad_norm': [],
+        'enc_desc_grad_norm': [],
+        'enc_corr_grad_norm': []
     }
 
     model.train()
@@ -63,11 +77,23 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       # Discriminator backpropagation
       disc_L.backward(retain_graph=True)
 
+      # Capture the norms of the discriminator's gradients
+      disc_input_norm = get_mean_grad_norm(model.discriminator[0])
+      epoch_grad_norms['disc_input_grad_norm'].append(disc_input_norm)
+      disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
+      epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)
+
       # Clear VAE optimiser gradient again
       main_optimiser.zero_grad()
 
       # VAE backpropagation
       total_vae_loss.backward()
+
+      # DIAGNOSIS: Capture Encoder gradients here
+      enc_desc_norm = get_mean_grad_norm(model.encoder_desc)
+      epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
+      enc_corr_norm = get_mean_grad_norm(model.encoder_corr)
+      epoch_grad_norms['enc_corr_grad_norm'].append(enc_corr_norm)
 
       # Step both optimisers
       discrim_optimiser.step()
@@ -105,6 +131,10 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_desc_recon_loss'] = np.mean(epoch_metrics["desc_recon_L"])
     training_log[-1]['avg_corr_recon_loss'] = np.mean(epoch_metrics["corr_recon_L"])
     training_log[-1]['avg_y_recon_loss'] = np.mean(epoch_metrics["y_recon_L"])
+    training_log[-1]['avg_disc_input_grad'] = np.mean(epoch_grad_norms['disc_input_grad_norm'])
+    training_log[-1]['avg_disc_output_grad'] = np.mean(epoch_grad_norms['disc_output_grad_norm'])
+    training_log[-1]['avg_desc_grad'] = np.mean(epoch_grad_norms['enc_desc_grad_norm'])
+    training_log[-1]['avg_corr_grad'] = np.mean(epoch_grad_norms['enc_corr_grad_norm'])
 
     last_train_results = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),

@@ -60,8 +60,13 @@ def all_VAE_losses_curve(training_metrics, show=False):
                label="Effective KL Loss", ax=ax)
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
                label="Effective Distillation Loss", ax=ax)
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_tc_loss'], 
                label="Effective TC Loss", ax=ax)
+  
+  ax.minorticks_on()
+  ax.tick_params(axis='y', which='major', color='#666666')
+  ax.tick_params(axis='y', which='minor', color='#999999')
+  ax.grid(visible=True, which='both')
   plt.xlabel('Epoch')
   plt.ylabel('Loss')
 
@@ -138,6 +143,29 @@ def u_clustering_analysis(test_results, mode="test", show=False):
   sns.scatterplot(x=u_corr_2d[:,0], y=u_corr_2d[:,1], 
                   hue=y_true, ax=axes[1,1], palette='viridis')
   axes[1,1].set_title('U_corr by Outcome')
+
+  if show: plt.show()
+
+  return fig
+
+def grad_curve(training_metrics, show=False):
+  fig, ax = plt.subplots(figsize=(8, 3))
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_input_grad'], 
+               label="Discriminator first layer average gradient norm", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_output_grad'], 
+               label="Discriminator last layer average gradient norm", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_grad'], 
+               label="Desc encoder average gradient norm", ax=ax)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_corr_grad'], 
+               label="Corr encoder average gradient norm", ax=ax)
+  
+  ax.minorticks_on()
+  ax.tick_params(axis='y', which='major', color='#666666')
+  ax.tick_params(axis='y', which='minor', color='#999999')
+  ax.grid(visible=True, which='both')
+  
+  plt.xlabel('Epoch')
+  plt.ylabel('Gradient Norm')
 
   if show: plt.show()
 
