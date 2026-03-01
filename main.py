@@ -7,7 +7,7 @@ from src.model import DCEVAE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
-from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve
+from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve
 from src.metrics import get_cca
 
 def main():
@@ -61,7 +61,7 @@ def main():
     model = DCEVAE(ind_meta, desc_meta, corr_meta, sens_meta, 
                   args=args)
     
-    training_log, epoch_metrics_log = train_dcevae(
+    training_log, _ = train_dcevae(
       model,
       train_loader,
       val_loader,
@@ -74,11 +74,13 @@ def main():
     training_metrics = pd.DataFrame(training_log)
 
     train_val_loss_fig = train_val_loss_curve(training_metrics)
-    train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png')
+    train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png', bbox_inches='tight')
     disc_tc_loss_fig = disc_tc_loss_curve(training_metrics)
-    disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png')
+    disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png', bbox_inches='tight')
     all_VAE_losses_fig = all_VAE_losses_curve(training_metrics)
-    all_VAE_losses_fig.savefig(f'{results_path}/VAE_losses_curve.png')
+    all_VAE_losses_fig.savefig(f'{results_path}/VAE_losses_curve.png', bbox_inches='tight')
+    training_accuracy_fig = training_accuracy_curve(training_metrics)
+    training_accuracy_fig.savefig(f'{results_path}/training_accuracy_curve.png', bbox_inches='tight')
 
     test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
 

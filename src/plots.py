@@ -66,3 +66,13 @@ def all_VAE_losses_curve(training_metrics, show=False):
   if show: plt.show()
 
   return fig
+
+def training_accuracy_curve(training_metrics, show=False):
+  fig, ax = plt.subplots(figsize=(8, 3))
+  sns.lineplot(x=training_metrics.index, y=training_metrics['accuracy'], ax=ax)
+  plt.xlabel('Epoch')
+  plt.ylabel('Accuracy')
+
+  if show: plt.show()
+
+  return fig

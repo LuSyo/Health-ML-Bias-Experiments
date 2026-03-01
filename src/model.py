@@ -414,5 +414,7 @@ class DCEVAE(nn.Module):
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
     total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
-    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L
+    y_pred_prob = torch.sigmoid(y_pred).detach()
+
+    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, y_pred_prob
 

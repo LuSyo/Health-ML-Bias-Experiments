@@ -3,6 +3,7 @@ import torch
 import torch.optim as optim
 import os
 from src.config import Config
+from src.metrics import calculate_performance_metrics
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
   if epoch < warm_up_epochs:
@@ -38,6 +39,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     }
 
     model.train()
+    all_y_true, all_y_pred_prob = [], []
     for i, batch in enumerate(train_loader):
       x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2 =\
       [tensor.to(device) for tensor in batch]
@@ -50,7 +52,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L \
+      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight)
@@ -68,6 +70,9 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       discrim_optimiser.step()
       main_optimiser.step()
 
+      all_y_true.append(y.cpu().numpy())
+      all_y_pred_prob.append(y_pred_prob.cpu().numpy())
+      
       # Log metrics
       epoch_metrics['total_vae_loss'].append(total_vae_loss.item())
       epoch_metrics['desc_recon_L'].append(desc_recon_L.item())
@@ -92,6 +97,11 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_corr_recon_loss'] = np.mean(epoch_metrics["corr_recon_L"])
     training_log[-1]['avg_y_recon_loss'] = np.mean(epoch_metrics["y_recon_L"])
 
+    perf_metrics = calculate_performance_metrics(np.concatenate(all_y_true).flatten(),
+                                                   (np.concatenate(all_y_pred_prob).flatten() > 0.5).astype(int) ,
+                                                   np.concatenate(all_y_pred_prob).flatten())
+    training_log[-1]['accuracy'] = perf_metrics['accuracy']
+
     # Validation
     model.eval()
     val_vae_loss = []
@@ -110,6 +120,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
     logger.info(f'Avg VAE Train Loss: {avg_train_loss}')
     logger.info(f'Avg VAE Validation Loss: {avg_val_loss}')
+    logger.info(f'Training accuracy: {perf_metrics['accuracy']}')
   
   model_path = f'{args.root_dir}{Config.MODELS_DIR}'
   os.makedirs(model_path, exist_ok=True)
