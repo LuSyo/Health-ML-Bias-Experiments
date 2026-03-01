@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+from sklearn.manifold import TSNE
 
 def train_val_loss_curve(training_metrics, show=False):
   fig, ax = plt.subplots(figsize=(8, 4))
@@ -76,3 +78,68 @@ def training_accuracy_curve(training_metrics, show=False):
   if show: plt.show()
 
   return fig
+
+def u_clustering_analysis(test_results, mode="test", show=False):
+  u_desc = np.stack(test_results['u_desc'].values)
+  u_corr = np.stack(test_results['u_corr'].values)
+  sens = test_results['sens'].values
+  y_true = test_results['y_true'].values
+
+  # Dimension reduction with T-distributed Stochastic Neighbor Embedding
+  tsne = TSNE(n_components=2, perplexity=30, random_state=4)
+  u_desc_2d = tsne.fit_transform(u_desc)
+  u_corr_2d = tsne.fit_transform(u_corr)
+
+  if mode=="training":
+    inf_u_desc = np.stack(test_results['inf_u_desc'].values)
+    inf_u_corr = np.stack(test_results['inf_u_corr'].values)
+    u_inf_desc_2d = tsne.fit_transform(inf_u_desc)
+    u_inf_corr_2d = tsne.fit_transform(inf_u_corr)
+    fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+    
+    # Row 1, Col 3: Inferred U_desc by sensitive attribute
+    sns.scatterplot(x=u_inf_desc_2d[:,0], y=u_inf_desc_2d[:,1], 
+                    hue=sens, ax=axes[0,2], palette='coolwarm')
+    axes[0,2].set_title('Inferred U_desc by Sensitive Attribute')
+
+    # Row 1, Col 4: Inferred U_desc by outcome
+    sns.scatterplot(x=u_inf_desc_2d[:,0], y=u_inf_desc_2d[:,1], 
+                    hue=y_true, ax=axes[0,3], palette='viridis')
+    axes[0,3].set_title('Inferred U_desc by Outcome')
+
+    # Row 2, Col 3: Inferred U_corr by sensitive attribute
+    sns.scatterplot(x=u_inf_corr_2d[:,0], y=u_inf_corr_2d[:,1], 
+                    hue=sens, ax=axes[1,2], palette='coolwarm')
+    axes[1,2].set_title('Inferred U_corr by Sensitive Attribute')
+
+    # Row 2, Col 4: Inferred U_corr by outcome
+    sns.scatterplot(x=u_inf_corr_2d[:,0], y=u_inf_corr_2d[:,1], 
+                    hue=y_true, ax=axes[1,3], palette='viridis')
+    axes[1,3].set_title('Inferred U_corr by Outcome')
+  else:
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+
+  # Row 1, Col 1: U_desc by sensitive attribute
+  sns.scatterplot(x=u_desc_2d[:,0], y=u_desc_2d[:,1], 
+                  hue=sens, ax=axes[0,0], palette='coolwarm')
+  axes[0,0].set_title('U_desc by Sensitive Attribute')
+
+  # Row 1, Col 2: U_desc by outcome
+  sns.scatterplot(x=u_desc_2d[:,0], y=u_desc_2d[:,1], 
+                  hue=y_true, ax=axes[0,1], palette='viridis')
+  axes[0,1].set_title('U_desc by Outcome')
+
+  # Row 2, Col 1: U_corr by sensitive attribute
+  sns.scatterplot(x=u_corr_2d[:,0], y=u_corr_2d[:,1], 
+                  hue=sens, ax=axes[1,0], palette='coolwarm')
+  axes[1,0].set_title('U_corr by Sensitive Attribute')
+
+  # Row 2, Col 2: U_corr by outcome
+  sns.scatterplot(x=u_corr_2d[:,0], y=u_corr_2d[:,1], 
+                  hue=y_true, ax=axes[1,1], palette='viridis')
+  axes[1,1].set_title('U_corr by Outcome')
+
+  if show: plt.show()
+
+  return fig
+

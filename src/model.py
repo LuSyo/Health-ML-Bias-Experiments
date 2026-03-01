@@ -415,6 +415,10 @@ class DCEVAE(nn.Module):
     total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
     y_pred_prob = torch.sigmoid(y_pred).detach()
+    y_cf_prob = torch.sigmoid(y_cf).detach()
 
-    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, y_pred_prob
+    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, \
+      kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, \
+        y_pred_prob, y_cf_prob, \
+          mu_desc_inf.detach(), mu_corr_inf.detach(), u_desc.detach(), u_corr.detach()
 

@@ -7,7 +7,7 @@ from src.model import DCEVAE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
-from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve
+from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis
 from src.metrics import get_cca
 
 def main():
@@ -61,7 +61,7 @@ def main():
     model = DCEVAE(ind_meta, desc_meta, corr_meta, sens_meta, 
                   args=args)
     
-    training_log, _ = train_dcevae(
+    training_log, _, train_results = train_dcevae(
       model,
       train_loader,
       val_loader,
@@ -81,8 +81,13 @@ def main():
     all_VAE_losses_fig.savefig(f'{results_path}/VAE_losses_curve.png', bbox_inches='tight')
     training_accuracy_fig = training_accuracy_curve(training_metrics)
     training_accuracy_fig.savefig(f'{results_path}/training_accuracy_curve.png', bbox_inches='tight')
+    train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
+    train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
 
     test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
+
+    test_u_clustering_analysis_fig = u_clustering_analysis(test_results)
+    test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
     strat_perf_metrics.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
 

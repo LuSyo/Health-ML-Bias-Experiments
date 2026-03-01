@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import torch
 import torch.optim as optim
 import os
@@ -39,7 +40,9 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     }
 
     model.train()
-    all_y_true, all_y_pred_prob = [], []
+    all_y_true, all_y_pred_prob, all_y_cf_prob, all_sens, all_u_corr, all_u_desc, all_inf_u_corr, all_inf_u_desc = \
+    [], [], [], [], [], [], [], []
+
     for i, batch in enumerate(train_loader):
       x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2 =\
       [tensor.to(device) for tensor in batch]
@@ -52,7 +55,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob \
+      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, y_cf_prob, inf_u_desc, inf_u_corr, u_desc, u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight)
@@ -72,6 +75,12 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(y_pred_prob.cpu().numpy())
+      all_y_cf_prob.append(torch.sigmoid(y_cf_prob).cpu().numpy())
+      all_sens.append(x_sens.cpu().numpy())
+      all_inf_u_corr.append(inf_u_corr.cpu().numpy())
+      all_inf_u_desc.append(inf_u_desc.cpu().numpy())
+      all_u_corr.append(u_corr.cpu().numpy())
+      all_u_desc.append(u_desc.cpu().numpy())
       
       # Log metrics
       epoch_metrics['total_vae_loss'].append(total_vae_loss.item())
@@ -97,9 +106,23 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_corr_recon_loss'] = np.mean(epoch_metrics["corr_recon_L"])
     training_log[-1]['avg_y_recon_loss'] = np.mean(epoch_metrics["y_recon_L"])
 
-    perf_metrics = calculate_performance_metrics(np.concatenate(all_y_true).flatten(),
-                                                   (np.concatenate(all_y_pred_prob).flatten() > 0.5).astype(int) ,
-                                                   np.concatenate(all_y_pred_prob).flatten())
+    last_train_results = pd.DataFrame({
+      'y_true': np.concatenate(all_y_true).flatten(),
+      'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
+      'y_cf_prob': np.concatenate(all_y_cf_prob).flatten(),
+      'sens': np.concatenate(all_sens).flatten(),
+      'inf_u_corr': list(np.concatenate(all_inf_u_corr)),
+      'inf_u_desc': list(np.concatenate(all_inf_u_desc)),
+      'u_corr': list(np.concatenate(all_u_corr)),
+      'u_desc': list(np.concatenate(all_u_desc)),
+    })
+    last_train_results['y_pred'] = (last_train_results['y_pred_prob'] > 0.5).astype(int)
+
+    perf_metrics = calculate_performance_metrics(
+      last_train_results['y_true'],
+      last_train_results['y_pred'],
+      last_train_results['y_pred_prob'])
+    
     training_log[-1]['accuracy'] = perf_metrics['accuracy']
 
     # Validation
@@ -133,4 +156,4 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
   }, f'{model_path}{args.exp_name}_dcevae.pth')
   logger.info(f'DCEVAE model saved to {model_path}')
   
-  return training_log, epoch_metrics_log
+  return training_log, epoch_metrics_log, last_train_results
