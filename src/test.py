@@ -16,7 +16,7 @@ def test_dcevae(model, test_loader, logger, args):
       x_ind, x_desc, x_corr, x_sens, y = [t.to(device) for t in batch[:5]]
 
       # Infer latent variables
-      mu_corr, _, mu_desc, _ = model.encode(x_ind, x_desc, x_corr, x_sens, y=None)
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_sens, y=None)
 
       # Factual and Counterfactual prediction
       # using the mean u_corr and u_desc

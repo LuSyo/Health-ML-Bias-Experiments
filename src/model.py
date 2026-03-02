@@ -49,8 +49,8 @@ class DCEVAE(nn.Module):
     elif (args.act_fn == 'tanh'):
       self.act_fn = nn.Tanh()
 
-    # Encoder (X_ind, X_desc, X_sens, Y) -> U_d
-    input_dim = self.ind_dim + self.desc_dim + self.sens_dim + self.target_dim
+    # Encoder (X_desc, Y) -> U_d
+    input_dim = self.desc_dim + self.target_dim
     self.encoder_desc = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -60,8 +60,8 @@ class DCEVAE(nn.Module):
     self.mu_desc = nn.Linear(self.h_dim, self.ud_dim)
     self.logvar_desc = nn.Linear(self.h_dim, self.ud_dim)
 
-    # Inference encoder (X_ind, X_desc, X_sens) -> U_d
-    input_dim = self.ind_dim + self.desc_dim + self.sens_dim
+    # Inference encoder (X_desc) -> U_d
+    input_dim = self.desc_dim
     self.inf_encoder_desc = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -71,8 +71,8 @@ class DCEVAE(nn.Module):
     self.inf_mu_desc = nn.Linear(self.h_dim, self.ud_dim)
     self.inf_logvar_desc = nn.Linear(self.h_dim, self.ud_dim)
 
-    # Encoder (X_ind, X_corr, X_sens, Y) -> U_c
-    input_dim = self.ind_dim + self.corr_dim + self.sens_dim + self.target_dim
+    # Encoder (X_corr, X_sens, Y) -> U_c
+    input_dim = self.corr_dim + self.sens_dim + self.target_dim
     self.encoder_corr = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -82,8 +82,8 @@ class DCEVAE(nn.Module):
     self.mu_corr = nn.Linear(self.h_dim, self.uc_dim)
     self.logvar_corr = nn.Linear(self.h_dim, self.uc_dim)
 
-    # Inference encoder (X_ind, X_corr, X_sens) -> U_c
-    input_dim = self.ind_dim + self.corr_dim + self.sens_dim
+    # Inference encoder (X_corr, X_sens) -> U_c
+    input_dim = self.corr_dim + self.sens_dim
     self.inf_encoder_corr = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -176,12 +176,11 @@ class DCEVAE(nn.Module):
         processed.append(col.unsqueeze(1))
     return torch.cat(processed, dim=1)
 
-  def encode(self, x_ind, x_desc, x_corr, x_sens, y=None):
+  def encode(self, x_desc, x_corr, x_sens, y=None):
     '''
       Encoders forward pass
     '''
     # Process raw tensors
-    x_ind_p = self._process_features(x_ind, self.ind_meta)
     x_desc_p = self._process_features(x_desc, self.desc_meta)
     x_corr_p = self._process_features(x_corr, self.corr_meta)
     x_sens_p = self._process_features(x_sens, self.sens_meta)
@@ -189,26 +188,26 @@ class DCEVAE(nn.Module):
     # Training abduction
     if y is not None:
       # Correlated path encoder
-      input_corr = torch.cat((x_ind_p, x_corr_p, x_sens_p, y), dim=1)
+      input_corr = torch.cat((x_corr_p, x_sens_p, y), dim=1)
       h_corr = self.encoder_corr(input_corr)
       mu_corr = self.mu_corr(h_corr)
       logvar_corr = self.logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_ind_p, x_desc_p, x_sens_p, y), dim=1)
+      input_desc = torch.cat((x_desc_p, y), dim=1)
       h_desc = self.encoder_desc(input_desc)
       mu_desc = self.mu_desc(h_desc)
       logvar_desc = self.logvar_desc(h_desc)
 
     else: #Inference
       # Correlated path encoder
-      input_corr = torch.cat((x_ind_p, x_corr_p, x_sens_p), dim=1)
+      input_corr = torch.cat((x_corr_p, x_sens_p), dim=1)
       h_corr = self.inf_encoder_corr(input_corr)
       mu_corr = self.inf_mu_corr(h_corr)
       logvar_corr = self.inf_logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_ind_p, x_desc_p, x_sens_p), dim=1)
+      input_desc = x_desc_p
       h_desc = self.inf_encoder_desc(input_desc)
       mu_desc = self.inf_mu_desc(h_desc)
       logvar_desc = self.inf_logvar_desc(h_desc)
@@ -287,24 +286,6 @@ class DCEVAE(nn.Module):
 
     return kl_div / mu.size(0)
 
-  def kl_divergence(self, mu_fact, logvar_fact, mu_inf, logvar_inf):
-    # Clamp logvars to prevent exp() from exploding or precision from becoming inf
-    logvar_fact = torch.clamp(logvar_fact, -10, 10)
-    logvar_inf = torch.clamp(logvar_inf, -10, 10)
-
-    # Precision of inference (1 / var_inf)
-    prec_inf = torch.exp(-logvar_inf)
-
-    # Formula: 0.5 * [log(var_inf/var_fact) + (var_fact + (mu_fact-mu_inf)^2)/var_inf - 1]
-    # Broken down into logvar:
-    term_log = logvar_inf - logvar_fact
-    term_ratio = (torch.exp(logvar_fact) + (mu_fact - mu_inf)**2) * prec_inf
-
-    kl = 0.5 * (term_log + term_ratio - 1.0)
-
-    # Sum over latent dims, then average over batch
-    return kl.sum(dim=1).mean()
-
   def kl_div(self, mu1, logvar1, mu2, logvar2):
     '''
       Calculates the KL divergence between two normal distributions
@@ -313,7 +294,7 @@ class DCEVAE(nn.Module):
     logvar2_clamped = torch.clamp(logvar2, -10.0, 10.0)
 
     kl_div = 0.5 * torch.sum(logvar2_clamped - logvar1_clamped +
-     (torch.exp(logvar1) + (mu1 - mu2)**2)* torch.exp(-logvar2) - 1)
+     (torch.exp(logvar1_clamped) + (mu1 - mu2)**2)* torch.exp(-logvar2_clamped) - 1)
 
     return kl_div / mu1.size(0)
 
@@ -369,9 +350,9 @@ class DCEVAE(nn.Module):
 
     # Encode
     mu_corr, logvar_corr, mu_desc, logvar_desc = self.encode(
-        x_ind, x_desc, x_corr, x_sens, y)
+        x_desc, x_corr, x_sens, y)
     mu_corr_inf, logvar_corr_inf, mu_desc_inf, logvar_desc_inf = self.encode(
-        x_ind, x_desc, x_corr, x_sens, y=None)
+        x_desc, x_corr, x_sens, y=None)
 
     # KL divergence between abduction and inference dists
     distill_L = self.kl_div(mu_corr.detach(), logvar_corr.detach(),
@@ -382,15 +363,21 @@ class DCEVAE(nn.Module):
     # Reparamaterise
     u_corr = self.reparameterize(mu_corr, logvar_corr)
     u_desc = self.reparameterize(mu_desc, logvar_desc)
+    u_corr_inf = self.reparameterize(mu_corr_inf, logvar_corr_inf)
+    u_desc_inf = self.reparameterize(mu_desc_inf, logvar_desc_inf)
 
-    # Decode
-    x_corr_pred, x_desc_pred, y_pred, x_desc_cf, y_cf = self.decode(
+    # Decode from abduction
+    x_corr_pred, x_desc_pred, *_ = self.decode(
         u_desc, u_corr, x_ind, x_sens)
+    
+    # Decode from inference
+    _, _, y_pred_inf, _, y_cf_inf = self.decode(
+        u_desc_inf, u_corr_inf, x_ind, x_sens)
 
     # Reconstruction & prediction loss
     desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_pred, x_desc, self.desc_meta)
     corr_recon_L = self.args.corr_a * self.reconstruction_loss(x_corr_pred, x_corr, self.corr_meta)
-    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred, y)
+    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_inf, y)
 
     recon_L = desc_recon_L + corr_recon_L + y_recon_L
 
@@ -400,7 +387,7 @@ class DCEVAE(nn.Module):
     # TC loss
     # Pass the permuted batch through the network
     mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
-        x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2)
+        x_desc_2, x_corr_2, x_sens_2, y_2)
     u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
     u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
 
@@ -408,14 +395,14 @@ class DCEVAE(nn.Module):
                                 u_desc_2, u_corr_2, x_sens_2)
 
     # Counterfactual fairness loss
-    fair_L = self.fair_loss(y_pred, y_cf)
+    fair_L = self.fair_loss(y_pred_inf, y_cf_inf)
 
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
     total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
-    y_pred_prob = torch.sigmoid(y_pred).detach()
-    y_cf_prob = torch.sigmoid(y_cf).detach()
+    y_pred_prob = torch.sigmoid(y_pred_inf).detach()
+    y_cf_prob = torch.sigmoid(y_cf_inf).detach()
 
     return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, \
