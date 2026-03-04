@@ -3,7 +3,7 @@ import numpy as np
 import os
 from src.config import Config
 from src.data_loader import make_bucketed_loader
-from src.model import DCEVAE
+from src.model import CEVAEHE
 from src.train import train_dcevae
 from src.test import test_dcevae
 from src.utils import parse_args, load_feature_mapping, setup_logger
@@ -58,7 +58,7 @@ def main():
     corr_meta = feature_mapping['corr']
     sens_meta = feature_mapping['sens']
 
-    model = DCEVAE(ind_meta, desc_meta, corr_meta, sens_meta, 
+    model = CEVAEHE(ind_meta, desc_meta, corr_meta, sens_meta, 
                   args=args)
     
     training_log, _, train_results = train_dcevae(

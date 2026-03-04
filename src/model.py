@@ -2,9 +2,9 @@ import torch
 from torch import nn
 import numpy as np
 
-class DCEVAE(nn.Module):
+class CEVAEHE(nn.Module):
   def __init__(self, ind_meta, desc_meta, corr_meta, sens_meta, args):
-    super(DCEVAE, self).__init__()
+    super(CEVAEHE, self).__init__()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
