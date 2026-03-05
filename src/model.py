@@ -225,12 +225,12 @@ class CEVAEHE(nn.Module):
 
     # Correlated path
     input_corr = torch.cat((u_corr, x_ind_p), dim=1)
-    x_corr_pred = {feature['name']: self.decoder_corr[feature['name']](input_corr)\
+    x_corr_pred_logits = {feature['name']: self.decoder_corr[feature['name']](input_corr)\
                    for feature in self.corr_meta}
 
     # Descendant path
     input_desc = torch.cat((u_desc, x_ind_p, x_sens_p), dim=1)
-    x_desc_pred = {feature['name']: self.decoder_desc[feature['name']](input_desc)\
+    x_desc_pred_logits = {feature['name']: self.decoder_desc[feature['name']](input_desc)\
                    for feature in self.desc_meta}
 
     # Target
@@ -240,13 +240,14 @@ class CEVAEHE(nn.Module):
     # Counterfactual
     x_sens_cf_p = self._process_features(1 - x_sens, self.sens_meta)
     input_desc_cf = torch.cat((u_desc, x_ind_p, x_sens_cf_p), dim=1)
-    x_desc_cf = {feature['name']: self.decoder_desc[feature['name']](input_desc_cf)\
+    x_desc_cf_logits = {feature['name']: self.decoder_desc[feature['name']](input_desc_cf)\
                    for feature in self.desc_meta}
+    x_desc_cf = self.hard_reconstruct_features(x_desc_cf_logits, self.desc_meta)
 
     input_target_cf = torch.cat((u_desc, u_corr, x_ind_p, x_sens_cf_p), dim=1)
     y_cf = self.decoder_target(input_target_cf)
 
-    return x_corr_pred, x_desc_pred, y_pred, x_desc_cf, y_cf
+    return x_desc_pred_logits, x_corr_pred_logits, y_pred, x_desc_cf, y_cf
 
   def reparameterize(self, mu, logvar):
     '''
@@ -275,15 +276,25 @@ class CEVAEHE(nn.Module):
         total_recon_L += nn.MSELoss(reduction='sum')(pred, target.unsqueeze(1))
 
     return total_recon_L / sample_size
+  
+  def hard_reconstruct_features(self, v_pred, v_meta):
+    '''
+      Reconstructs the feature bucket from its logits
+    '''
+    reconstructed = []
+    for i, feature in enumerate(v_meta):
+      logits = v_pred[feature['name']]
 
-  # def reconstruct_features(self, v_pred, v_meta):
-  #   '''
-  #     Reconstructs the feature bucket from its logits
-  #   '''
-
-  #   for i, feature in enumerate(v_meta):
-  #     pred = v_pred[feature['name']]
-
+      if feature['type'] == 'categorical':
+        indices = torch.argmax(logits, dim=1).unsqueeze(1)
+        reconstructed.append(indices.float())
+      elif feature['type'] == 'binary':
+        probs = torch.sigmoid(logits)
+        binary = (probs > 0.5).float()
+        reconstructed.append(binary)
+      else:
+        reconstructed.append(logits)
+    return torch.cat(reconstructed, dim=1)
 
 
   def kl_loss(self, mu, logvar):
@@ -378,7 +389,7 @@ class CEVAEHE(nn.Module):
     u_desc_inf = self.reparameterize(mu_desc_inf, logvar_desc_inf)
 
     # Decode from abduction
-    x_corr_pred, x_desc_pred, *_ = self.decode(
+    x_desc_pred, x_corr_pred, *_ = self.decode(
         u_desc, u_corr, x_ind, x_sens)
     
     # Decode from inference
