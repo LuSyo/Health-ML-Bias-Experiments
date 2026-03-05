@@ -1,3 +1,4 @@
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import mean_squared_error
@@ -40,3 +41,30 @@ def latent_recon_loss(u, u_cf):
     recon_loss += mean_squared_error(u[:,i], u_cf[:,i] )
 
   return recon_loss / dim
+
+def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
+  '''
+    Calculates the Total Effect (TE) Error between observed group outcome disparities \
+    and the total effect estimated by the model's counterfactual generation
+  '''
+
+  # Factual disparity in outcomes
+  # E[Y|S=1] - E[Y|S=0]
+  group_0_mask = sens == 0
+  group_1_mask = sens == 1
+
+  obs_disparity = y_true[group_1_mask].mean() - y_true[group_0_mask].mean()
+
+  # Estimated Average Total Effect (ATE)
+  # E[Y(do(S=1)) - Y(do(S=0))]
+  # If factual sens == 1, Y(do(S=1)) = factual prediction, Y(do(S=0)) = counterfactual prediction  
+  # If factual sens == 0, Y(do(S=0)) = factual prediction, Y(do(S=1)) = counterfactual prediction
+  y_do_1 = np.where(group_1_mask, y_pred_prob, y_cf_prob)
+  y_do_0 = np.where(group_0_mask, y_pred_prob, y_cf_prob)
+
+  est_ate = (y_do_1 - y_do_0).mean()
+
+  # TE Error
+  te_error = abs(obs_disparity - est_ate)
+
+  return te_error, obs_disparity, est_ate

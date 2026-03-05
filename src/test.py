@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from src.causal_validation import latent_recon_loss, run_sens_classifier
+from src.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier
 from src.metrics import calculate_performance_metrics, stratified_perf
 
 def test_dcevae(model, test_loader, logger, args):
@@ -59,7 +59,7 @@ def test_dcevae(model, test_loader, logger, args):
     test_results['sens'],
   )
 
-  # Verify invariance of Udesc by Sens
+  ## Verify invariance of Udesc by Sens
   # 1. Sex classifier performance
   u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
     np.stack(test_results['u_desc']),
@@ -75,7 +75,16 @@ def test_dcevae(model, test_loader, logger, args):
   u_desc_recon_loss = latent_recon_loss(
     np.stack(test_results['u_desc']), 
     np.stack(test_results['u_desc_cf']))
+  
+  ## Calculate the Total Effect Error
+  te_error, obs_disparity, est_ate = calculate_te_error(
+      test_results['y_true'].values,
+      test_results['y_pred_prob'].values,
+      test_results['y_cf_prob'].values,
+      test_results['sens'].values
+  )
 
+  ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
   logger.info(f'Test AUC: {perf_metrics['roc_auc']:.4f}')
   logger.info(f'Test Brier Score: {perf_metrics['brier_score']:.4f}')
@@ -84,5 +93,8 @@ def test_dcevae(model, test_loader, logger, args):
   logger.info(f'Udesc -> Xsens, ROC AUC: {u_desc_sens_auc_mean:4f} (std. {u_desc_sens_auc_std:4f})')
   logger.info(f'Xdesc -> Xsens, ROC AUC: {x_desc_sens_auc_mean:4f} (std. {x_desc_sens_auc_std:4f})')
   logger.info(f'Udesc counterfactual reconstruction loss: {u_desc_recon_loss:4f}')
+  logger.info(f'Total Effect (TE) Error: {te_error:4f}')
+  logger.info(f'Observed Disparity (S=1 vs S=0): {obs_disparity:4f}')
+  logger.info(f'Estimated ATE: {est_ate:4f}')
 
   return test_results, perf_metrics, strat_perf_metrics
