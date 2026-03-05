@@ -49,8 +49,8 @@ class CEVAEHE(nn.Module):
     elif (args.act_fn == 'tanh'):
       self.act_fn = nn.Tanh()
 
-    # Encoder (X_desc, Y) -> U_d
-    input_dim = self.desc_dim + self.target_dim
+    # Encoder (Xdesc, Xind, Xsens, Y) -> U_d
+    input_dim = self.desc_dim + self.ind_dim + self.sens_dim + self.target_dim
     self.encoder_desc = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -60,8 +60,8 @@ class CEVAEHE(nn.Module):
     self.mu_desc = nn.Linear(self.h_dim, self.ud_dim)
     self.logvar_desc = nn.Linear(self.h_dim, self.ud_dim)
 
-    # Inference encoder (X_desc) -> U_d
-    input_dim = self.desc_dim
+    # Inference encoder (Xdesc, Xind, Xsens) -> U_d
+    input_dim = self.desc_dim + self.ind_dim + self.sens_dim
     self.inf_encoder_desc = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -71,8 +71,8 @@ class CEVAEHE(nn.Module):
     self.inf_mu_desc = nn.Linear(self.h_dim, self.ud_dim)
     self.inf_logvar_desc = nn.Linear(self.h_dim, self.ud_dim)
 
-    # Encoder (X_corr, X_sens, Y) -> U_c
-    input_dim = self.corr_dim + self.sens_dim + self.target_dim
+    # Encoder (X_corr, Xind, X_sens, Y) -> U_c
+    input_dim = self.corr_dim + self.sens_dim + self.sens_dim + self.target_dim
     self.encoder_corr = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -82,8 +82,8 @@ class CEVAEHE(nn.Module):
     self.mu_corr = nn.Linear(self.h_dim, self.uc_dim)
     self.logvar_corr = nn.Linear(self.h_dim, self.uc_dim)
 
-    # Inference encoder (X_corr, X_sens) -> U_c
-    input_dim = self.corr_dim + self.sens_dim
+    # Inference encoder (X_corr, Xind, X_sens) -> U_c
+    input_dim = self.corr_dim + self.sens_dim + self.sens_dim
     self.inf_encoder_corr = nn.Sequential(
         nn.Linear(input_dim, self.h_dim),
         self.act_fn,
@@ -176,38 +176,39 @@ class CEVAEHE(nn.Module):
         processed.append(col.unsqueeze(1))
     return torch.cat(processed, dim=1)
 
-  def encode(self, x_desc, x_corr, x_sens, y=None):
+  def encode(self, x_desc, x_corr, x_ind, x_sens, y=None):
     '''
       Encoders forward pass
     '''
     # Process raw tensors
     x_desc_p = self._process_features(x_desc, self.desc_meta)
     x_corr_p = self._process_features(x_corr, self.corr_meta)
+    x_ind_p = self._process_features(x_ind, self.ind_meta)
     x_sens_p = self._process_features(x_sens, self.sens_meta)
 
     # Training abduction
     if y is not None:
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_sens_p, y), dim=1)
+      input_corr = torch.cat((x_corr_p, x_ind_p, x_sens_p, y), dim=1)
       h_corr = self.encoder_corr(input_corr)
       mu_corr = self.mu_corr(h_corr)
       logvar_corr = self.logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_desc_p, y), dim=1)
+      input_desc = torch.cat((x_desc_p, x_ind_p, x_sens_p, y), dim=1)
       h_desc = self.encoder_desc(input_desc)
       mu_desc = self.mu_desc(h_desc)
       logvar_desc = self.logvar_desc(h_desc)
 
     else: #Inference
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_sens_p), dim=1)
+      input_corr = torch.cat((x_corr_p, x_ind_p, x_sens_p), dim=1)
       h_corr = self.inf_encoder_corr(input_corr)
       mu_corr = self.inf_mu_corr(h_corr)
       logvar_corr = self.inf_logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = x_desc_p
+      input_desc = torch.cat((x_desc_p, x_ind_p, x_sens_p), dim=1)
       h_desc = self.inf_encoder_desc(input_desc)
       mu_desc = self.inf_mu_desc(h_desc)
       logvar_desc = self.inf_logvar_desc(h_desc)
@@ -274,6 +275,16 @@ class CEVAEHE(nn.Module):
         total_recon_L += nn.MSELoss(reduction='sum')(pred, target.unsqueeze(1))
 
     return total_recon_L / sample_size
+
+  # def reconstruct_features(self, v_pred, v_meta):
+  #   '''
+  #     Reconstructs the feature bucket from its logits
+  #   '''
+
+  #   for i, feature in enumerate(v_meta):
+  #     pred = v_pred[feature['name']]
+
+
 
   def kl_loss(self, mu, logvar):
     '''
@@ -350,9 +361,9 @@ class CEVAEHE(nn.Module):
 
     # Encode
     mu_corr, logvar_corr, mu_desc, logvar_desc = self.encode(
-        x_desc, x_corr, x_sens, y)
+        x_desc, x_corr, x_ind, x_sens, y)
     mu_corr_inf, logvar_corr_inf, mu_desc_inf, logvar_desc_inf = self.encode(
-        x_desc, x_corr, x_sens, y=None)
+        x_desc, x_corr, x_ind, x_sens, y=None)
 
     # KL divergence between abduction and inference dists
     distill_L = self.kl_div(mu_corr.detach(), logvar_corr.detach(),
@@ -387,7 +398,7 @@ class CEVAEHE(nn.Module):
     # TC loss
     # Pass the permuted batch through the network
     mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
-        x_desc_2, x_corr_2, x_sens_2, y_2)
+        x_desc_2, x_corr_2, x_ind_2, x_sens_2, y_2)
     u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
     u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
 

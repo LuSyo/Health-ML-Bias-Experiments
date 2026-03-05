@@ -17,7 +17,10 @@ def test_dcevae(model, test_loader, logger, args):
       x_ind, x_desc, x_corr, x_sens, y = [t.to(device) for t in batch[:5]]
 
       # Infer latent variables
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_sens, y=None)
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, x_sens, y=None)
+
+      # Infer counterfactual latent variables
+      # _, _, mu_desc_cf, _ = model.encode(x_desc, x_corr, x_ind, x_sens, y=None)
 
       # Factual and Counterfactual prediction
       # from mean Ucorr and Udesc
@@ -65,6 +68,9 @@ def test_dcevae(model, test_loader, logger, args):
     np.stack(test_results['x_desc']),
     test_results['sens']
   )
+
+  # 2. Counterfactual invariance
+
 
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
   logger.info(f'Test AUC: {perf_metrics['roc_auc']:.4f}')
