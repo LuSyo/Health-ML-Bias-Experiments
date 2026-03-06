@@ -24,7 +24,7 @@ def test_dcevae(model, test_loader, logger, args):
       _, _, y_pred_prob, x_desc_cf, y_cf_prob = model.decode(mu_desc, mu_corr, x_ind, x_sens)
       
       # 2nd Counterfactual pass for causal validation
-      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, x_sens - 1, y=None)
+      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, 1 - x_sens, y=None)
 
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(torch.sigmoid(y_pred_prob).cpu().numpy())

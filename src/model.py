@@ -122,7 +122,8 @@ class CEVAEHE(nn.Module):
 
     # Discriminator
     self.discriminator = nn.Sequential(
-        nn.Linear(self.u_dim + self.sens_dim, self.h_dim),
+        nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
+        # nn.Linear(self.u_dim + self.sens_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
         nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, self.h_dim),
@@ -330,40 +331,55 @@ class CEVAEHE(nn.Module):
     # Process raw tensors
     x_sens_p = self._process_features(x_sens, self.sens_meta)
     x_sens_2_p = self._process_features(x_sens_2, self.sens_meta)
-
-    # Detach U tensors
-    u_desc_det = u_desc.detach()
-    u_corr_det = u_corr.detach()
-    u_desc_2_det = u_desc_2.detach()
-    u_corr_2_det = u_corr_2.detach()
-
-    # Run the discriminator on factual samples
-    input_disc = torch.cat((u_desc_det, u_corr_det, x_sens_p), dim=1)
-    disc_logits = self.discriminator(input_disc) # 1= real samples, 0= permuted samples
+    
     target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
     target_perm = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+
+    
+    ## DISCRIMINATOR TRAINING
+    # Detach U tensors
+    u_desc_det = u_desc.detach()
+    u_desc_2_det = u_desc_2.detach()
+    # u_corr_det = u_corr.detach()
+    # u_corr_2_det = u_corr_2.detach()
+
+    # Run the discriminator on factual samples
+    input_disc_det = torch.cat((u_desc_det, x_sens_p), dim=1)
+    # input_disc = torch.cat((u_desc_det, u_corr_det, x_sens_p), dim=1)
+    disc_logits_real = self.discriminator(input_disc_det) # 1= real samples, 0= permuted samples
 
     # Prepare U_desc permuted samples from the pre-premuted batch
     permuted_indices = np.random.permutation(u_desc.size(0))
     u_desc_2_permuted = u_desc_2_det[permuted_indices]
 
     # Run the discriminator on permuted samples
-    input_disc_permuted = torch.cat((u_desc_2_permuted, u_corr_2_det, x_sens_2_p), dim=1)
+    input_disc_permuted = torch.cat((u_desc_2_permuted, x_sens_2_p), dim=1)
+    # input_disc_permuted = torch.cat((u_desc_2_permuted, u_corr_2_det, x_sens_2_p), dim=1)
     disc_logits_permuted = self.discriminator(input_disc_permuted)
 
+    # Calculate the discriminator loss
+    disc_L = nn.CrossEntropyLoss()(disc_logits_real, target_real) + nn.CrossEntropyLoss()(disc_logits_permuted, target_perm)
+
+    
+    # VAE TC LOSS
     # Calculate the TC loss to minimise for the VAE
     # Aim for the discriminator to be wrong for all real samples
-    tc_L = nn.CrossEntropyLoss()(disc_logits, target_perm) + nn.CrossEntropyLoss()(disc_logits_permuted, target_real)
-
-    # Calculate the discriminator loss
-    disc_L = nn.CrossEntropyLoss()(disc_logits, target_real) + nn.CrossEntropyLoss()(disc_logits_permuted, target_perm)
+    input_disc_real_attached = torch.cat((u_desc, x_sens_p), dim=1)
+    disc_logits_attached = self.discriminator(input_disc_real_attached)
+    tc_L = nn.CrossEntropyLoss()(disc_logits_attached, target_perm) 
 
     return tc_L, disc_L
 
-  def fair_loss(self, y, y_cf):
-    y_cf_sig = nn.Sigmoid()(y_cf)
-    y_p_sig = nn.Sigmoid()(y)
-    fair_L = torch.sum(torch.norm(y_cf_sig - y_p_sig, p=2, dim=1))/y_cf_sig.size(0)
+  def fair_loss(self, y_true, y_cf, y_pred, y_pred_cf):
+    y_cf_hard = (nn.Sigmoid()(y_cf) > 0.5).float()
+    equal_outcome = y_cf_hard == y_true
+
+    if not equal_outcome.any():
+        return torch.tensor(0.0, device=self.device, requires_grad=True)
+    
+    y_pred_cond = y_pred[equal_outcome]
+    y_pred_cf_cond = y_pred_cf[equal_outcome]
+    fair_L = nn.MSELoss()(y_pred_cf_cond, y_pred_cond)
     return fair_L
 
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
@@ -393,7 +409,7 @@ class CEVAEHE(nn.Module):
         u_desc, u_corr, x_ind, x_sens)
     
     # Decode from inference
-    _, _, y_pred_inf, _, y_cf_inf = self.decode(
+    _, _, y_pred_inf, x_desc_cf, y_cf_inf = self.decode(
         u_desc_inf, u_corr_inf, x_ind, x_sens)
 
     # Reconstruction & prediction loss
@@ -417,7 +433,19 @@ class CEVAEHE(nn.Module):
                                 u_desc_2, u_corr_2, x_sens_2)
 
     # Counterfactual fairness loss
-    fair_L = self.fair_loss(y_pred_inf, y_cf_inf)
+    # Second pass to infer the counterfactual prediction
+    x_sens_flipped = 1 - x_sens
+
+    mu_corr_cf, logvar_corr_cf, mu_desc_cf, logvar_desc_cf = self.encode(
+        x_desc_cf, x_corr, x_ind, x_sens_flipped, y=None)
+    
+    u_corr_cf = self.reparameterize(mu_corr_cf, logvar_corr_cf)
+    u_desc_cf = self.reparameterize(mu_desc_cf, logvar_desc_cf)
+
+    _, _, y_pred_cf, _, _ = self.decode(
+        u_desc_cf, u_corr_cf, x_ind, x_sens_flipped)
+    
+    fair_L = self.fair_loss(y, y_cf_inf, y_pred_inf, y_pred_cf)
 
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
