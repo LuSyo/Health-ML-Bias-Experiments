@@ -69,7 +69,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, y_cf_prob, inf_u_desc, inf_u_corr, u_desc, u_corr \
+      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight)
@@ -101,7 +101,6 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(y_pred_prob.cpu().numpy())
-      all_y_cf_prob.append(torch.sigmoid(y_cf_prob).cpu().numpy())
       all_sens.append(x_sens.cpu().numpy())
       all_inf_u_corr.append(inf_u_corr.cpu().numpy())
       all_inf_u_desc.append(inf_u_desc.cpu().numpy())
@@ -139,7 +138,6 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     last_train_results = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),
       'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
-      'y_cf_prob': np.concatenate(all_y_cf_prob).flatten(),
       'sens': np.concatenate(all_sens).flatten(),
       'inf_u_corr': list(np.concatenate(all_inf_u_corr)),
       'inf_u_desc': list(np.concatenate(all_inf_u_desc)),

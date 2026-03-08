@@ -93,17 +93,17 @@ class CEVAEHE(nn.Module):
     self.inf_mu_corr = nn.Linear(self.h_dim, self.uc_dim)
     self.inf_logvar_corr = nn.Linear(self.h_dim, self.uc_dim)
 
-    # Decoder (U_c, X_ind) -> X_corr
+    # Decoder (U_c, X_ind, Sbio) -> X_corr
     self.decoder_corr = nn.ModuleDict()
     for feature in corr_meta:
       out_dim = 1 if feature['type'] != 'categorical' else feature.get('n')
       self.decoder_corr[feature['name']] = nn.Sequential(
-          nn.Linear(self.uc_dim + self.ind_dim, self.h_dim),
+          nn.Linear(self.uc_dim + self.ind_dim + self.sens_dim, self.h_dim),
           self.act_fn,
           nn.Linear(self.h_dim, out_dim)
       )
 
-    # Decoder (U_desc, X_ind, X_sens) -> X_desc
+    # Decoder (U_desc, X_ind, Ssoc) -> X_desc
     self.decoder_desc = nn.ModuleDict()
     for feature in desc_meta:
       out_dim = 1 if feature['type'] != 'categorical' else feature.get('n')
@@ -113,9 +113,9 @@ class CEVAEHE(nn.Module):
           nn.Linear(self.h_dim, out_dim)
       )
 
-    # Decoder (U_desc, U_corr, X_ind, X_sens) -> Y
+    # Decoder (U_desc, U_corr, X_ind, Sbio/Ssoc) -> Y
     self.decoder_target = nn.Sequential(
-        nn.Linear(self.u_dim + self.ind_dim + self.sens_dim, self.h_dim),
+        nn.Linear(self.u_dim + self.ind_dim + self.sens_dim*2, self.h_dim),
         self.act_fn,
         nn.Linear(self.h_dim, self.target_dim)
     )
@@ -177,7 +177,7 @@ class CEVAEHE(nn.Module):
         processed.append(col.unsqueeze(1))
     return torch.cat(processed, dim=1)
 
-  def encode(self, x_desc, x_corr, x_ind, x_sens, y=None):
+  def encode(self, x_desc, x_corr, x_ind, sens_bio, sens_soc, y=None):
     '''
       Encoders forward pass
     '''
@@ -185,70 +185,102 @@ class CEVAEHE(nn.Module):
     x_desc_p = self._process_features(x_desc, self.desc_meta)
     x_corr_p = self._process_features(x_corr, self.corr_meta)
     x_ind_p = self._process_features(x_ind, self.ind_meta)
-    x_sens_p = self._process_features(x_sens, self.sens_meta)
+    sens_bio_p = self._process_features(sens_bio, self.sens_meta)
+    sens_soc_p = self._process_features(sens_soc, self.sens_meta)
 
     # Training abduction
     if y is not None:
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_ind_p, x_sens_p, y), dim=1)
+      input_corr = torch.cat((x_corr_p, x_ind_p, sens_bio_p, y), dim=1)
       h_corr = self.encoder_corr(input_corr)
       mu_corr = self.mu_corr(h_corr)
       logvar_corr = self.logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_desc_p, x_ind_p, x_sens_p, y), dim=1)
+      input_desc = torch.cat((x_desc_p, x_ind_p, sens_soc_p, y), dim=1)
       h_desc = self.encoder_desc(input_desc)
       mu_desc = self.mu_desc(h_desc)
       logvar_desc = self.logvar_desc(h_desc)
 
     else: #Inference
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_ind_p, x_sens_p), dim=1)
+      input_corr = torch.cat((x_corr_p, x_ind_p, sens_bio_p), dim=1)
       h_corr = self.inf_encoder_corr(input_corr)
       mu_corr = self.inf_mu_corr(h_corr)
       logvar_corr = self.inf_logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_desc_p, x_ind_p, x_sens_p), dim=1)
+      input_desc = torch.cat((x_desc_p, x_ind_p, sens_soc_p), dim=1)
       h_desc = self.inf_encoder_desc(input_desc)
       mu_desc = self.inf_mu_desc(h_desc)
       logvar_desc = self.inf_logvar_desc(h_desc)
 
     return mu_corr, logvar_corr, mu_desc, logvar_desc
 
-  def decode(self, u_desc, u_corr, x_ind, x_sens):
+  def decode(self, u_desc, u_corr, x_ind, sens_bio, sens_soc):
     '''
       Decoders forward pass
+
+      Outputs:
+        - x_desc_pred_logits: the decoded Xdesc (as logits)
+        - x_corr_pred_logits: the decoded Xcorr (as logits)
+        - y_pred_logits: the decoded outcome (as logits)
+        - x_desc_cf: the decoded soc-counterfactual Xdesc (hard reconstructed) 
+        - x_corr_cf: the decoded bio-counterfactual Xcorr (hard reconstructed) 
+        - y_soc_cf_logits: the decoded soc-counterfactual outcome (as logits)
+        - y_bio_cf_logits: the decoded bio-counterfactual outcome (as logits)
+        - y_full_cf_logits: the decoded full-counterfactual outcome (as logits)
     '''
     # Process raw tensors
     x_ind_p = self._process_features(x_ind, self.ind_meta)
-    x_sens_p = self._process_features(x_sens, self.sens_meta)
+    sens_bio_p = self._process_features(sens_bio, self.sens_meta)
+    sens_soc_p = self._process_features(sens_soc, self.sens_meta)
 
     # Correlated path
-    input_corr = torch.cat((u_corr, x_ind_p), dim=1)
+    input_corr = torch.cat((u_corr, x_ind_p, sens_bio_p), dim=1)
     x_corr_pred_logits = {feature['name']: self.decoder_corr[feature['name']](input_corr)\
                    for feature in self.corr_meta}
 
     # Descendant path
-    input_desc = torch.cat((u_desc, x_ind_p, x_sens_p), dim=1)
+    input_desc = torch.cat((u_desc, x_ind_p, sens_soc_p), dim=1)
     x_desc_pred_logits = {feature['name']: self.decoder_desc[feature['name']](input_desc)\
                    for feature in self.desc_meta}
 
     # Target
-    input_target = torch.cat((u_desc, u_corr, x_ind_p, x_sens_p), dim=1)
-    y_pred = self.decoder_target(input_target)
+    input_target = torch.cat((u_desc, u_corr, x_ind_p, 
+                              sens_bio_p, sens_soc_p), dim=1)
+    y_pred_logits = self.decoder_target(input_target)
 
-    # Counterfactual
-    x_sens_cf_p = self._process_features(1 - x_sens, self.sens_meta)
-    input_desc_cf = torch.cat((u_desc, x_ind_p, x_sens_cf_p), dim=1)
-    x_desc_cf_logits = {feature['name']: self.decoder_desc[feature['name']](input_desc_cf)\
+    # Sociological Counterfactual
+    sens_soc_cf_p = self._process_features(1 - sens_soc, self.sens_meta)
+    input_desc_cf = torch.cat((u_desc, x_ind_p, sens_soc_cf_p), dim=1)
+    x_desc_cf_logits = {feature['name']: 
+                        self.decoder_desc[feature['name']](input_desc_cf)\
                    for feature in self.desc_meta}
     x_desc_cf = self.hard_reconstruct_features(x_desc_cf_logits, self.desc_meta)
 
-    input_target_cf = torch.cat((u_desc, u_corr, x_ind_p, x_sens_cf_p), dim=1)
-    y_cf = self.decoder_target(input_target_cf)
+    input_target_soc_cf = torch.cat((u_desc, u_corr, x_ind_p, 
+                                 sens_bio_p, sens_soc_cf_p), dim=1)
+    y_soc_cf_logits = self.decoder_target(input_target_soc_cf)
 
-    return x_desc_pred_logits, x_corr_pred_logits, y_pred, x_desc_cf, y_cf
+    # Biological Counterfactual
+    sens_bio_cf_p = self._process_features(1 - sens_bio, self.sens_meta)
+    input_corr_cf = torch.cat((u_corr, x_ind_p, sens_bio_cf_p), dim=1)
+    x_corr_cf_logits = {feature['name']: 
+                        self.decoder_corr[feature['name']](input_corr_cf)\
+                   for feature in self.corr_meta}
+    x_corr_cf = self.hard_reconstruct_features(x_corr_cf_logits, self.corr_meta)
+
+    input_target_bio_cf = torch.cat((u_desc, u_corr, x_ind_p, 
+                                 sens_bio_cf_p, sens_soc_p), dim=1)
+    y_bio_cf_logits = self.decoder_target(input_target_bio_cf)
+
+    # Full Counterfactual?
+    input_target_full_cf = torch.cat((u_desc, u_corr, x_ind_p,
+                                      sens_bio_cf_p, sens_soc_cf_p), dim=1)
+    y_full_cf_logits = self.decoder_target(input_target_full_cf)
+
+    return x_desc_pred_logits, x_corr_pred_logits, y_pred_logits, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, y_full_cf_logits
 
   def reparameterize(self, mu, logvar):
     '''
@@ -371,26 +403,70 @@ class CEVAEHE(nn.Module):
     return tc_L, disc_L
 
   def fair_loss(self, y_true, y_cf, y_pred, y_pred_cf):
-    y_cf_hard = (nn.Sigmoid()(y_cf) > 0.5).float()
+    '''
+      Fairness loss, implements the Individual Equalised Counterfactual Odds criteria for counterfactual fairness:
+      An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. And they should receive a different prediction if they have a different outcome. (=> equality of error rates across counterfactuals)
+
+      Inputs:
+        - y_true: The factual actual outcome (as binary)
+        - y_cf: The counterfactual actual outcome (as probabilities)
+        - y_pred: The factual prediction (as probabilities)
+        - y_pred_cf: The counterfactual prediction (as probabilities)
+
+      Outputs:
+        fair_L: the mean squared error (MSE) between factual and counterfactual prediction, conditioned on equal outcomes, added to the MSE between opposite factual and counterfactual, conditioned on opposite outcomes
+    '''
+    y_cf_hard = (y_cf > 0.5).float()
     equal_outcome = y_cf_hard == y_true
+    opp_outcome = y_cf_hard == 1 - y_true
 
     if not equal_outcome.any():
-        return torch.tensor(0.0, device=self.device, requires_grad=True)
-    
-    y_pred_cond = y_pred[equal_outcome]
-    y_pred_cf_cond = y_pred_cf[equal_outcome]
-    fair_L = nn.MSELoss()(y_pred_cf_cond, y_pred_cond)
-    return fair_L
+      fair_L_equal = torch.tensor(0.0, device=self.device, requires_grad=True)
+    else:
+      y_pred_equal = y_pred[equal_outcome]
+      y_pred_cf_equal = y_pred_cf[equal_outcome]
+      fair_L_equal = nn.MSELoss()(y_pred_cf_equal, y_pred_equal)
+
+    if not opp_outcome.any():
+        fair_L_opp = torch.tensor(0.0, device=self.device, requires_grad=True)
+    else:
+      y_pred_opp = y_pred[opp_outcome]
+      y_pred_cf_opp = y_pred_cf[opp_outcome]
+      fair_L_opp = nn.MSELoss()(y_pred_cf_opp, 1 - y_pred_opp)
+
+    return fair_L_equal + fair_L_opp
 
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
                      x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                      distill_weight=0, kl_weight=1.0, tc_weight=1.0):
+    '''
+      Calculates all components of the VAE loss in training
+
+      Outputs:
+        - total_vae_loss: The total VAE loss
+        - disc_L: The discriminator loss
+        - desc_recon_L: The Xdesc reconstruction loss (in adbuction)
+        - corr_recon_L: The Xcorr reconstruction loss (in adbuction)
+        - y_recon_L: The outcome recosntruction loss (in adbuction)
+        - The effective KL loss, including parameterised scaling factor (in adbuction)
+        - The effective TC loss, including parameterised scaling factor (in adbuction)
+        - The effective Fair loss, including parameterised scaling factor (in inference)
+        - The effective distillation loss between adbuction and inference encoders, including parameterised scaling factor
+        - y_pred_prob: The predicted outcome (in inference, as probabilities)
+        - mu_desc, mu_corr: The abducted latent variables (mean)
+        - mu_desc_inf, mu_corr_inf: The inferred latent variables (mean)
+
+    '''
+
+    # Split the sensitive attribute
+    s_soc = x_sens.clone()
+    s_bio = x_sens.clone()
 
     # Encode
     mu_corr, logvar_corr, mu_desc, logvar_desc = self.encode(
-        x_desc, x_corr, x_ind, x_sens, y)
+        x_desc, x_corr, x_ind, s_bio, s_soc, y)
     mu_corr_inf, logvar_corr_inf, mu_desc_inf, logvar_desc_inf = self.encode(
-        x_desc, x_corr, x_ind, x_sens, y=None)
+        x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
 
     # KL divergence between abduction and inference dists
     distill_L = self.kl_div(mu_corr.detach(), logvar_corr.detach(),
@@ -405,17 +481,18 @@ class CEVAEHE(nn.Module):
     u_desc_inf = self.reparameterize(mu_desc_inf, logvar_desc_inf)
 
     # Decode from abduction
-    x_desc_pred, x_corr_pred, *_ = self.decode(
-        u_desc, u_corr, x_ind, x_sens)
+    x_desc_pred_logits, x_corr_pred_logits, y_pred_logits, \
+      x_desc_cf, x_corr_cf, y_soc_cf_logits, _, y_full_cf_logits = self.decode(
+        u_desc, u_corr, x_ind, s_bio, s_soc)
     
     # Decode from inference
-    _, _, y_pred_inf, x_desc_cf, y_cf_inf = self.decode(
-        u_desc_inf, u_corr_inf, x_ind, x_sens)
+    _, _, y_pred_inf_logits, *_ = self.decode(
+        u_desc_inf, u_corr_inf, x_ind, s_bio, s_soc)
 
-    # Reconstruction & prediction loss
-    desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_pred, x_desc, self.desc_meta)
-    corr_recon_L = self.args.corr_a * self.reconstruction_loss(x_corr_pred, x_corr, self.corr_meta)
-    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_inf, y)
+    # Reconstruction loss
+    desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_pred_logits, x_desc, self.desc_meta)
+    corr_recon_L = self.args.corr_a * self.reconstruction_loss(x_corr_pred_logits, x_corr, self.corr_meta)
+    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_logits, y)
 
     recon_L = desc_recon_L + corr_recon_L + y_recon_L
 
@@ -432,30 +509,36 @@ class CEVAEHE(nn.Module):
     tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens,
                                 u_desc_2, u_corr_2, x_sens_2)
 
-    # Counterfactual fairness loss
+    # IECO fairness loss for a flipped Sociological sensitive attribute
+    # We keep the Biological sensitive attribute constant
+
+    # Counterfactual actual outcome (adbucted)
+    y_soc_cf = torch.sigmoid(y_soc_cf_logits)
+
     # Second pass to infer the counterfactual prediction
-    x_sens_flipped = 1 - x_sens
+    s_soc_flipped = 1 - s_soc
 
     mu_corr_cf, logvar_corr_cf, mu_desc_cf, logvar_desc_cf = self.encode(
-        x_desc_cf, x_corr, x_ind, x_sens_flipped, y=None)
+        x_desc_cf, x_corr, x_ind, s_bio, s_soc_flipped, y=None)
     
     u_corr_cf = self.reparameterize(mu_corr_cf, logvar_corr_cf)
     u_desc_cf = self.reparameterize(mu_desc_cf, logvar_desc_cf)
 
-    _, _, y_pred_cf, _, _ = self.decode(
-        u_desc_cf, u_corr_cf, x_ind, x_sens_flipped)
+    _, _, y_pred_cf_logits, *_ = self.decode(
+        u_desc_cf, u_corr_cf, x_ind, s_bio, s_soc_flipped)
+    y_pred_cf_prob = torch.sigmoid(y_pred_cf_logits)
+
+    y_pred_prob = torch.sigmoid(y_pred_inf_logits)
     
-    fair_L = self.fair_loss(y, y_cf_inf, y_pred_inf, y_pred_cf)
+    fair_L = self.fair_loss(y, y_soc_cf, y_pred_prob, y_pred_cf_prob)
 
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
     total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
 
-    y_pred_prob = torch.sigmoid(y_pred_inf).detach()
-    y_cf_prob = torch.sigmoid(y_cf_inf).detach()
 
     return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, \
-        y_pred_prob, y_cf_prob, \
-          mu_desc_inf.detach(), mu_corr_inf.detach(), u_desc.detach(), u_corr.detach()
+        y_pred_prob.detach(), \
+           mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
 

@@ -9,41 +9,48 @@ def test_dcevae(model, test_loader, logger, args):
   device = args.device
   model.eval()
 
-  all_y_true, all_y_pred_prob, all_y_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_u_desc_cf = \
-    [], [], [], [], [], [], [], []
+  all_y_true, all_y_pred_prob, all_y_full_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_x_corr, all_u_desc_cf = \
+    [], [], [], [], [], [], [], [], []
 
   with torch.no_grad():
     for batch in test_loader:
       x_ind, x_desc, x_corr, x_sens, y = [t.to(device) for t in batch[:5]]
 
-      # Infer latent variables
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, x_sens, y=None)
+      s_bio = x_sens.clone()
+      s_soc = x_sens.clone()
 
-      # Factual and Counterfactual prediction
+      # Infer latent variables
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
+
+      # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      _, _, y_pred_prob, x_desc_cf, y_cf_prob = model.decode(mu_desc, mu_corr, x_ind, x_sens)
+      _, _, y_pred_logits, x_desc_cf, _, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
       
-      # 2nd Counterfactual pass for causal validation
-      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, 1 - x_sens, y=None)
+      # Soc. Counterfactual pass to adbuct the counterfactual Udesc
+      # (for invariance test)
+      s_soc_flipped = 1 - s_soc
+      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, s_bio, s_soc_flipped, y=None)
 
       all_y_true.append(y.cpu().numpy())
-      all_y_pred_prob.append(torch.sigmoid(y_pred_prob).cpu().numpy())
-      all_y_cf_prob.append(torch.sigmoid(y_cf_prob).cpu().numpy())
+      all_y_pred_prob.append(torch.sigmoid(y_pred_logits).cpu().numpy())
+      all_y_full_cf_prob.append(torch.sigmoid(y_full_cf_logits).cpu().numpy())
       all_sens.append(x_sens.cpu().numpy())
       all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
       all_x_desc.append(x_desc.cpu().numpy())
+      all_x_corr.append(x_corr.cpu().numpy())
       all_u_desc_cf.append(mu_desc_cf.cpu().numpy())
   
   test_results = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),
       'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
-      'y_cf_prob': np.concatenate(all_y_cf_prob).flatten(),
+      'y_full_cf_prob': np.concatenate(all_y_full_cf_prob).flatten(),
       'sens': np.concatenate(all_sens).flatten(),
       'u_corr': list(np.concatenate(all_u_corr)),
       'u_desc': list(np.concatenate(all_u_desc)),
       'u_desc_cf': list(np.concatenate(all_u_desc_cf)),
       'x_desc': list(np.concatenate(all_x_desc)),
+      'x_corr': list(np.concatenate(all_x_desc)),
   })
   test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
 
@@ -71,6 +78,16 @@ def test_dcevae(model, test_loader, logger, args):
     test_results['sens']
   )
 
+  u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
+    np.stack(test_results['u_corr']),
+    test_results['sens']
+  )
+
+  x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
+    np.stack(test_results['x_corr']),
+    test_results['sens']
+  )
+
   # 2. Counterfactual invariance
   u_desc_recon_loss = latent_recon_loss(
     np.stack(test_results['u_desc']), 
@@ -80,7 +97,7 @@ def test_dcevae(model, test_loader, logger, args):
   te_error, obs_disparity, est_ate = calculate_te_error(
       test_results['y_true'].values,
       test_results['y_pred_prob'].values,
-      test_results['y_cf_prob'].values,
+      test_results['y_full_cf_prob'].values,
       test_results['sens'].values
   )
 
@@ -92,6 +109,8 @@ def test_dcevae(model, test_loader, logger, args):
   logger.info(f'Test False Positive Rate: {perf_metrics['fpr']:.4f}')
   logger.info(f'Udesc -> Xsens, ROC AUC: {u_desc_sens_auc_mean:4f} (std. {u_desc_sens_auc_std:4f})')
   logger.info(f'Xdesc -> Xsens, ROC AUC: {x_desc_sens_auc_mean:4f} (std. {x_desc_sens_auc_std:4f})')
+  logger.info(f'Ucorr -> Xsens, ROC AUC: {u_corr_sens_auc_mean:4f} (std. {u_corr_sens_auc_std:4f})')
+  logger.info(f'Xcorr -> Xsens, ROC AUC: {x_corr_sens_auc_mean:4f} (std. {x_corr_sens_auc_std:4f})')
   logger.info(f'Udesc counterfactual reconstruction loss: {u_desc_recon_loss:4f}')
   logger.info(f'Total Effect (TE) Error: {te_error:4f}')
   logger.info(f'Observed Disparity (S=1 vs S=0): {obs_disparity:4f}')
