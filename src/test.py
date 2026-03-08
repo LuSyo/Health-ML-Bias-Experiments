@@ -20,7 +20,7 @@ def test_dcevae(model, test_loader, logger, args):
       s_soc = x_sens.clone()
 
       # Infer latent variables
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, y=None)
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
@@ -29,7 +29,7 @@ def test_dcevae(model, test_loader, logger, args):
       # Soc. Counterfactual pass to adbuct the counterfactual Udesc
       # (for invariance test)
       s_soc_flipped = 1 - s_soc
-      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, s_bio, s_soc_flipped, y=None)
+      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, s_bio, y=None)
 
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(torch.sigmoid(y_pred_logits).cpu().numpy())
@@ -50,7 +50,7 @@ def test_dcevae(model, test_loader, logger, args):
       'u_desc': list(np.concatenate(all_u_desc)),
       'u_desc_cf': list(np.concatenate(all_u_desc_cf)),
       'x_desc': list(np.concatenate(all_x_desc)),
-      'x_corr': list(np.concatenate(all_x_desc)),
+      'x_corr': list(np.concatenate(all_x_corr)),
   })
   test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
 
