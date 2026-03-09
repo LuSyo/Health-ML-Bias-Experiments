@@ -350,6 +350,42 @@ class CEVAEHE(nn.Module):
      (torch.exp(logvar1_clamped) + (mu1 - mu2)**2)* torch.exp(-logvar2_clamped) - 1)
 
     return kl_div / mu1.size(0)
+  
+  def tc_loss_flipped(self, u_desc, s_soc):
+    sample_size = u_desc.size(0)
+
+    # Discriminator prediction targets
+    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
+    target_flipped = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+
+    # process sensitive feature
+    s_soc_p = self._process_features(s_soc, self.sens_meta)
+    s_soc_flipped_p = self._process_features(1- s_soc, self.sens_meta)
+
+    ## DISCRIMINATOR TRAINING
+    u_desc_det = u_desc.detach()
+
+    input_disc_det = torch.cat((u_desc_det, s_soc_p), dim=1)
+    disc_logits_real = self.discriminate(input_disc_det)
+
+    input_disc_flipped = torch.cat((u_desc_det, s_soc_flipped_p), dim=1)
+    disc_logits_flipped = self.discriminate(input_disc_flipped)
+
+    # Discriminator Loss
+    disc_L = nn.CrossEntropyLoss()(disc_logits_real, target_real)\
+            + nn.CrossEntropyLoss()(disc_logits_flipped, target_flipped)
+
+    ## VAE LOSS
+    input_disc_att = torch.cat((u_desc, s_soc_p), dim=1)
+    disc_logits_real_att = self.discriminate(input_disc_att)
+
+    input_disc_flipped_att = torch.cat((u_desc, s_soc_flipped_p), dim=1)
+    disc_logits_flipped_att = self.discriminate(input_disc_flipped_att)
+
+    tc_L = nn.CrossEntropyLoss()(disc_logits_real_att, target_flipped)\
+          + nn.CrossEntropyLoss()(disc_logits_flipped_att, target_real)
+    
+    return tc_L, disc_L
 
   def tc_loss(self, u_desc, u_corr, x_sens, u_desc_2, u_corr_2, x_sens_2):
     '''
@@ -499,13 +535,15 @@ class CEVAEHE(nn.Module):
 
     # TC loss
     # Pass the permuted batch through the network
-    mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
-        x_desc_2, x_corr_2, x_ind_2, x_sens_2, y_2)
-    u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
-    u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
+    # mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
+    #     x_desc_2, x_corr_2, x_ind_2, x_sens_2, y_2)
+    # u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
+    # u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
 
-    tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens,
-                                u_desc_2, u_corr_2, x_sens_2)
+    # tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens,
+    #                             u_desc_2, u_corr_2, x_sens_2)
+    
+    tc_L, disc_L = self.tc_loss_flipped(u_desc, s_soc)
 
     # IECO fairness loss for a flipped Sociological sensitive attribute
     # We keep the Biological sensitive attribute constant
