@@ -11,24 +11,25 @@ class Config:
   SEED = 4
 
   # DCEVAE architecture
-  UC_DIM = 8
-  UD_DIM = 8
+  UC_DIM = 3
+  UD_DIM = 3
   H_DIM = 32
   ACT_FN = 'relu'
 
   # DCEVAE training hyperparameters
   BATCH_SIZE = 32
-  N_EPOCHS = 40
-  VAE_LR = 0.01
-  DISC_LR = 0.01
-  DISTILL_WARM_UP = 10
-  KL_WARM_UP = 20
-  TC_WARM_UP = 30
+  N_EPOCHS = 5
+  VAE_LR = 0.001
+  DISC_LR = 0.0005
+  DISTILL_WARM_UP = 0
+  KL_WARM_UP = 0
+  TC_WARM_UP = 0
   DISC_STEP = 5
 
   # DCEVAE loss scaling factors
   CORR_RECON_ALPHA = 1
   DESC_RECON_ALPHA = 1
-  PRED_ALPHA = 10
+  PRED_ALPHA = 1
   FAIR_BETA = 1
   TC_BETA = 1
+  U_IND_BETA = 1

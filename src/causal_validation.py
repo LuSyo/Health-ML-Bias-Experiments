@@ -67,4 +67,9 @@ def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
   # TE Error
   te_error = abs(obs_disparity - est_ate)
 
-  return te_error, obs_disparity, est_ate
+  # Internal consistency check
+  # i.e. TE error against the model's reconstructed outcome
+  model_disparity = y_pred_prob[group_1_mask].mean() - y_pred_prob[group_0_mask].mean()
+  internal_te_error = abs(model_disparity - est_ate)
+
+  return te_error, obs_disparity, est_ate, internal_te_error

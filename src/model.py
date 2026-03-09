@@ -464,7 +464,8 @@ class CEVAEHE(nn.Module):
   
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
                      x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
-                     distill_weight=0, kl_weight=1.0, tc_weight=1.0):
+                     distill_weight=0, kl_weight=1.0, tc_weight=1.0, 
+                     u_ind_weight=1):
     '''
       Calculates all components of the VAE loss in training
 
@@ -557,7 +558,8 @@ class CEVAEHE(nn.Module):
 
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
-    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L - 2*u_redun_L
+    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L\
+        - u_ind_weight*u_redun_L
 
 
     return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \

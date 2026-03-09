@@ -94,7 +94,7 @@ def test_dcevae(model, test_loader, logger, args):
     np.stack(test_results['u_desc_cf']))
   
   ## Calculate the Total Effect Error
-  te_error, obs_disparity, est_ate = calculate_te_error(
+  te_error, obs_disparity, est_ate, internal_te_error = calculate_te_error(
       test_results['y_true'].values,
       test_results['y_pred_prob'].values,
       test_results['y_full_cf_prob'].values,
@@ -112,8 +112,9 @@ def test_dcevae(model, test_loader, logger, args):
   logger.info(f'Ucorr -> Xsens, ROC AUC: {u_corr_sens_auc_mean:4f} (std. {u_corr_sens_auc_std:4f})')
   logger.info(f'Xcorr -> Xsens, ROC AUC: {x_corr_sens_auc_mean:4f} (std. {x_corr_sens_auc_std:4f})')
   logger.info(f'Udesc counterfactual reconstruction loss: {u_desc_recon_loss:4f}')
-  logger.info(f'Total Effect (TE) Error: {te_error:4f}')
   logger.info(f'Observed Disparity (S=1 vs S=0): {obs_disparity:4f}')
   logger.info(f'Estimated ATE: {est_ate:4f}')
+  logger.info(f'Total Effect (TE) Error: {te_error:4f}')
+  logger.info(f'Internal Total Effect (TE) Error: {internal_te_error:4f}')
 
   return test_results, perf_metrics, strat_perf_metrics

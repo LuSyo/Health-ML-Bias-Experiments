@@ -33,6 +33,7 @@ def parse_args():
   parser.add_argument('--pred_a', type=float, default=Config.PRED_ALPHA)
   parser.add_argument('--fair_b', type=float, default=Config.FAIR_BETA)
   parser.add_argument('--tc_b', type=float, default=Config.TC_BETA)
+  parser.add_argument('--u_ind_b', type=float, default=Config.U_IND_BETA)
 
   parser.add_argument('--exp_name', type=str, default=date_str)
 

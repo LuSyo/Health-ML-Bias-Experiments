@@ -72,7 +72,8 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
-                               distill_weight, kl_weight, tc_weight)
+                               distill_weight, kl_weight, tc_weight, 
+                               args.u_ind_b)
 
       # VAE backpropagation
       total_vae_loss.backward()
