@@ -69,10 +69,19 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
+      total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight)
+
+      # VAE backpropagation
+      total_vae_loss.backward()
+      
+
+      # DISC LOSS
+      # clear discriminator gradients
+      discrim_optimiser.zero_grad()
+      disc_L = model.disc_loss(u_desc, x_sens)
 
       # Discriminator backpropagation
       disc_L.backward(retain_graph=True)
@@ -83,13 +92,6 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
       epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)
 
-      # Clear VAE optimiser gradient again
-      main_optimiser.zero_grad()
-
-      # VAE backpropagation
-      total_vae_loss.backward()
-
-      # DIAGNOSIS: Capture Encoder gradients here
       enc_desc_norm = get_mean_grad_norm(model.encoder_desc)
       epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
       enc_corr_norm = get_mean_grad_norm(model.encoder_corr)

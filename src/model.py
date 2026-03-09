@@ -351,7 +351,30 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
   
-  def tc_loss_flipped(self, u_desc, s_soc):
+  def tc_loss(self, u_desc, s_soc):
+    sample_size = u_desc.size(0)
+
+    # Discriminator prediction targets
+    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
+    target_flipped = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+
+    # process sensitive feature
+    s_soc_p = self._process_features(s_soc, self.sens_meta)
+    s_soc_flipped_p = self._process_features(1- s_soc, self.sens_meta)
+
+    ## VAE LOSS
+    input_disc_att = torch.cat((u_desc, s_soc_p), dim=1)
+    disc_logits_real_att = self.discriminate(input_disc_att)
+
+    input_disc_flipped_att = torch.cat((u_desc, s_soc_flipped_p), dim=1)
+    disc_logits_flipped_att = self.discriminate(input_disc_flipped_att)
+
+    tc_L = nn.CrossEntropyLoss()(disc_logits_real_att, target_flipped)\
+          + nn.CrossEntropyLoss()(disc_logits_flipped_att, target_real)
+    
+    return tc_L
+  
+  def disc_loss(self, u_desc, s_soc):
     sample_size = u_desc.size(0)
 
     # Discriminator prediction targets
@@ -374,67 +397,36 @@ class CEVAEHE(nn.Module):
     # Discriminator Loss
     disc_L = nn.CrossEntropyLoss()(disc_logits_real, target_real)\
             + nn.CrossEntropyLoss()(disc_logits_flipped, target_flipped)
-
-    ## VAE LOSS
-    input_disc_att = torch.cat((u_desc, s_soc_p), dim=1)
-    disc_logits_real_att = self.discriminate(input_disc_att)
-
-    input_disc_flipped_att = torch.cat((u_desc, s_soc_flipped_p), dim=1)
-    disc_logits_flipped_att = self.discriminate(input_disc_flipped_att)
-
-    tc_L = nn.CrossEntropyLoss()(disc_logits_real_att, target_flipped)\
-          + nn.CrossEntropyLoss()(disc_logits_flipped_att, target_real)
     
-    return tc_L, disc_L
+    return disc_L
 
-  def tc_loss(self, u_desc, u_corr, x_sens, u_desc_2, u_corr_2, x_sens_2):
+  def u_redundancy_loss(self, u_desc, u_corr, x_ind, s_soc, s_bio, y_pred_prob):
     '''
-      Calculates the Total Correlation loss to minimise for the VAE and the \
-      discriminator loss
+      Calculates the Latent redundancy loss to minimise the predictive information shared by Udesc and Ucorr
     '''
-    sample_size = u_desc.size(0)
-
     # Process raw tensors
-    x_sens_p = self._process_features(x_sens, self.sens_meta)
-    x_sens_2_p = self._process_features(x_sens_2, self.sens_meta)
+    s_soc_p = self._process_features(s_soc, self.sens_meta)
+    s_bio_p = self._process_features(s_bio, self.sens_meta)
+    x_ind_p = self._process_features(x_ind, self.ind_meta)
+
+    # Create permuted u_corr and reconstructed outcomes
+    permuted_indices = np.random.permutation(u_corr.size(0))
+    u_corr_permuted = u_corr[permuted_indices]
+
+    for param in self.decoder_target.parameters():
+        param.requires_grad = False
+
+    # Forward target decoder pass on permuted data
+    input_permuted = torch.cat((u_desc, u_corr_permuted, x_ind_p, 
+                            s_bio_p, s_soc_p), dim=1)
+    y_permuted_logits = self.decoder_target(input_permuted)
+
+    for param in self.decoder_target.parameters():
+        param.requires_grad = True
     
-    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
-    target_perm = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+    u_redun_L = nn.BCEWithLogitsLoss()(y_permuted_logits, y_pred_prob.detach())
 
-    
-    ## DISCRIMINATOR TRAINING
-    # Detach U tensors
-    u_desc_det = u_desc.detach()
-    u_desc_2_det = u_desc_2.detach()
-    # u_corr_det = u_corr.detach()
-    # u_corr_2_det = u_corr_2.detach()
-
-    # Run the discriminator on factual samples
-    input_disc_det = torch.cat((u_desc_det, x_sens_p), dim=1)
-    # input_disc = torch.cat((u_desc_det, u_corr_det, x_sens_p), dim=1)
-    disc_logits_real = self.discriminator(input_disc_det) # 1= real samples, 0= permuted samples
-
-    # Prepare U_desc permuted samples from the pre-premuted batch
-    permuted_indices = np.random.permutation(u_desc.size(0))
-    u_desc_2_permuted = u_desc_2_det[permuted_indices]
-
-    # Run the discriminator on permuted samples
-    input_disc_permuted = torch.cat((u_desc_2_permuted, x_sens_2_p), dim=1)
-    # input_disc_permuted = torch.cat((u_desc_2_permuted, u_corr_2_det, x_sens_2_p), dim=1)
-    disc_logits_permuted = self.discriminator(input_disc_permuted)
-
-    # Calculate the discriminator loss
-    disc_L = nn.CrossEntropyLoss()(disc_logits_real, target_real) + nn.CrossEntropyLoss()(disc_logits_permuted, target_perm)
-
-    
-    # VAE TC LOSS
-    # Calculate the TC loss to minimise for the VAE
-    # Aim for the discriminator to be wrong for all real samples
-    input_disc_real_attached = torch.cat((u_desc, x_sens_p), dim=1)
-    disc_logits_attached = self.discriminator(input_disc_real_attached)
-    tc_L = nn.CrossEntropyLoss()(disc_logits_attached, target_perm) 
-
-    return tc_L, disc_L
+    return u_redun_L
 
   def fair_loss(self, y_true, y_cf, y_pred, y_pred_cf):
     '''
@@ -469,7 +461,7 @@ class CEVAEHE(nn.Module):
       fair_L_opp = nn.MSELoss()(y_pred_cf_opp, 1 - y_pred_opp)
 
     return fair_L_equal + fair_L_opp
-
+  
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
                      x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                      distill_weight=0, kl_weight=1.0, tc_weight=1.0):
@@ -532,18 +524,10 @@ class CEVAEHE(nn.Module):
 
     # KL loss
     kl_L = self.kl_loss(mu_corr, logvar_corr) + self.kl_loss(mu_desc, logvar_desc)
+    
 
     # TC loss
-    # Pass the permuted batch through the network
-    # mu_corr_2, logvar_corr_2, mu_desc_2, logvar_desc_2 = self.encode(
-    #     x_desc_2, x_corr_2, x_ind_2, x_sens_2, y_2)
-    # u_corr_2 = self.reparameterize(mu_corr_2, logvar_corr_2)
-    # u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
-
-    # tc_L, disc_L = self.tc_loss(u_desc, u_corr, x_sens,
-    #                             u_desc_2, u_corr_2, x_sens_2)
-    
-    tc_L, disc_L = self.tc_loss_flipped(u_desc, s_soc)
+    tc_L = self.tc_loss(u_desc, s_soc)
 
     # IECO fairness loss for a flipped Sociological sensitive attribute
     # We keep the Biological sensitive attribute constant
@@ -568,12 +552,15 @@ class CEVAEHE(nn.Module):
     
     fair_L = self.fair_loss(y, y_soc_cf, y_pred_prob, y_pred_cf_prob)
 
+    # Latent Redundancy Loss
+    u_redun_L = self.u_redundancy_loss(u_desc, u_corr, x_ind, s_soc, s_bio, y_pred_prob)
+
     # Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
-    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L
+    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L - 2*u_redun_L
 
 
-    return total_vae_loss, disc_L, desc_recon_L, corr_recon_L, y_recon_L, \
+    return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, \
         y_pred_prob.detach(), \
            mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
