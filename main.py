@@ -30,8 +30,6 @@ def main():
   logger.info(f'Distillation Warm-up: {args.distill_warm_up}')
   logger.info(f'TC Loss Warm-up: {args.tc_warm_up}')
   logger.info(f'KL Warm-up: {args.kl_warm_up}')
-  logger.info(f'U_corr dimension: {args.uc_dim}')
-  logger.info(f'U_desc dimension: {args.ud_dim}')
   logger.info(f'Hidden layers dimension: {args.h_dim}')
   logger.info(f'Activation function: {args.act_fn}')
   logger.info(f'Corr. recon. loss alpha: {args.corr_a}')
@@ -60,6 +58,10 @@ def main():
 
     model = CEVAEHE(ind_meta, desc_meta, corr_meta, sens_meta, 
                   args=args)
+    
+    
+    logger.info(f'U_corr dimension: {model.uc_dim}')
+    logger.info(f'U_desc dimension: {model.ud_dim}')
     
     training_log, _, train_results = train_dcevae(
       model,
@@ -99,7 +101,7 @@ def main():
     u_desc_matrix = np.stack(test_results['u_desc'].values)
     u_corr_matrix = np.stack(test_results['u_corr'].values)
     u_u_cca = get_cca(u_desc_matrix, u_corr_matrix)
-    logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca}')
+    logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca:.4f}')
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

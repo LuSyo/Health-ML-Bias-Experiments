@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 import numpy as np
@@ -37,8 +38,8 @@ class CEVAEHE(nn.Module):
 
     self.args = args
     self.device = args.device
-    self.uc_dim = args.uc_dim
-    self.ud_dim = args.ud_dim
+    self.uc_dim = max(2, math.ceil(self.corr_dim / 3))
+    self.ud_dim = max(2, math.ceil(self.desc_dim / 3))
     self.u_dim = self.uc_dim + self.ud_dim
     self.h_dim = args.h_dim
     self.batch_size = args.batch_size
