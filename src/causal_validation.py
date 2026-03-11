@@ -3,7 +3,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import mean_squared_error
 
-def run_sens_classifier(features, target_sens):
+def run_sens_classifier(features, target_sens, seed=4):
   '''
     Trains a Random Forest classifier on the given features\
      to predict the target sensitive attribute.
@@ -15,11 +15,11 @@ def run_sens_classifier(features, target_sens):
     Outputs
       roc_auc: ROC AUC (Receiver Operating Characteristic Area Under the Curve)
   '''
-  cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=4)
+  cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   audit_rf = RandomForestClassifier(
       n_estimators=100,
       max_depth=5,
-      random_state=4
+      random_state=seed
   )
   scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='roc_auc')
   return scores.mean(), scores.std()

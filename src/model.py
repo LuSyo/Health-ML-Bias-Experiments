@@ -564,7 +564,31 @@ class CEVAEHE(nn.Module):
 
 
     return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \
-      kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, \
+      kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
         y_pred_prob.detach(), \
            mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
 
+class EarlyStopping:
+  def __init__(self, patience=10, min_delta=0, checkpoint_path='cevae_he_best.pt'):
+    self.patience = patience
+    self.min_delta = min_delta
+    self.checkpoint_path = checkpoint_path
+    self.counter = 0
+    self.best_loss = None
+    self.early_stop = False
+
+  def __call__(self, val_loss, model):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            self.save_checkpoint(model)
+        elif val_loss > self.best_loss - self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_loss = val_loss
+            self.save_checkpoint(model)
+            self.counter = 0
+
+  def save_checkpoint(self, model):
+      torch.save(model.state_dict(), self.checkpoint_path)

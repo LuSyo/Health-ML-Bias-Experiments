@@ -44,6 +44,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
         'fair_L': [],
         'disc_L': [],
         'distill_L': [],
+        'redun_L': [],
     }
 
     epoch_grad_norms = {
@@ -69,7 +70,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
+      total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, redund_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
                                x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight, 
@@ -120,6 +121,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       epoch_metrics['fair_L'].append(fair_L.item())
       epoch_metrics['disc_L'].append(disc_L.item())
       epoch_metrics['distill_L'].append(distill_L.item())
+      epoch_metrics['redun_L'].append(redund_L.item())
 
     # Epoch summary
     avg_train_loss = np.mean(epoch_metrics['total_vae_loss'])
@@ -129,6 +131,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_tc_loss'] = np.mean(epoch_metrics["tc_L"])
     training_log[-1]['avg_kl_loss'] = np.mean(epoch_metrics["kl_L"])
     training_log[-1]['avg_fair_loss'] = np.mean(epoch_metrics["fair_L"])
+    training_log[-1]['avg_redun_loss'] = np.mean(epoch_metrics["redun_L"])
     training_log[-1]['avg_distill_loss'] = np.mean(epoch_metrics["distill_L"])
     training_log[-1]['avg_desc_recon_loss'] = np.mean(epoch_metrics["desc_recon_L"])
     training_log[-1]['avg_corr_recon_loss'] = np.mean(epoch_metrics["corr_recon_L"])

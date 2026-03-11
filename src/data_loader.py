@@ -3,7 +3,10 @@ import torch.utils.data as utils
 from sklearn.model_selection import train_test_split
 import numpy as np
 
-def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32):
+def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32, seed=4):
+  g = torch.Generator()
+  g.manual_seed(seed)
+  
   X_ind_fact = X_ind[index]
   X_desc_fact = X_desc[index]
   X_corr_fact = X_corr[index]
@@ -29,9 +32,8 @@ def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32):
   X_sens_tensor_2 = torch.tensor(X_sens_perm, dtype=torch.float32)
   Y_tensor_2 = torch.tensor(Y_perm, dtype=torch.float32)
 
-  # dataset = utils.TensorDataset(X_ind_tensor, X_desc_tensor, X_corr_tensor, X_sens_tensor, Y_tensor)
   dataset = utils.TensorDataset(X_ind_tensor, X_desc_tensor, X_corr_tensor, X_sens_tensor, Y_tensor, X_ind_tensor_2, X_desc_tensor_2, X_corr_tensor_2, X_sens_tensor_2, Y_tensor_2)
-  loader = utils.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+  loader = utils.DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=g)
 
   return loader
 
@@ -102,12 +104,12 @@ def make_bucketed_loader(dataset, map, val_size=0.2, test_size=0.1, batch_size=3
   )
 
   # Training loader
-  train_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, train_index, batch_size)
+  train_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, train_index, batch_size, seed)
 
   # Validation loader
-  val_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, val_index, batch_size)
+  val_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, val_index, batch_size, seed)
 
   # Test loader
-  test_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, test_index, batch_size)
+  test_loader = make_loader(X_ind, X_desc, X_corr, X_sens, Y, test_index, batch_size, seed)
 
   return train_loader, val_loader, test_loader

@@ -6,12 +6,14 @@ from src.data_loader import make_bucketed_loader
 from src.model import CEVAEHE
 from src.train import train_dcevae
 from src.test import test_dcevae
-from src.utils import parse_args, load_feature_mapping, setup_logger
+from src.utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
 from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
 from src.metrics import get_cca
 
 def main():
   args = parse_args()
+
+  set_global_seeds(args.seed)
 
   results_path = f'{args.root_dir}{Config.RESULTS_DIR}{args.exp_name}'
   os.makedirs(results_path, exist_ok=True)
@@ -48,7 +50,8 @@ def main():
     feature_mapping = load_feature_mapping(args.mapping)
 
     # Data loaders
-    train_loader, val_loader, test_loader = make_bucketed_loader(dataset, feature_mapping)
+    train_loader, val_loader, test_loader = make_bucketed_loader(dataset, feature_mapping,
+                                                                 batch_size=args.batch_size, seed=args.seed)
 
     # Feature metadata
     ind_meta = feature_mapping['ind']

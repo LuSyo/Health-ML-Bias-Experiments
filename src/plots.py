@@ -49,24 +49,28 @@ def KL_loss_curve(training_metrics, show=False):
 
 def all_VAE_losses_curve(training_metrics, show=False):
 
-  fig, ax = plt.subplots(figsize=(8, 3))
+  fig, axes = plt.subplots(2, 1,figsize=(8, 8))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
-               label="Effective X_desc Recon. Loss", ax=ax)
+               label="Effective X_desc Recon. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_corr_recon_loss'], 
-               label="Effective X_corr Recon. Loss", ax=ax)
+               label="Effective X_corr Recon. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
-               label="Effective Y Pred. Loss", ax=ax)
+               label="Effective Y Pred. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], 
-               label="Effective KL Loss", ax=ax)
+               label="Effective KL Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
-               label="Effective Distillation Loss", ax=ax)
+               label="Effective Distillation Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_tc_loss'], 
-               label="Effective TC Loss", ax=ax)
+               label="Effective TC Loss", ax=axes[0])
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_fair_loss'], 
+               label="Effective Fair Loss", ax=axes[1])
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_redun_loss'], 
+               label="Effective Latent Redundancy Loss", ax=axes[1])
   
-  ax.minorticks_on()
-  ax.tick_params(axis='y', which='major', color='#666666')
-  ax.tick_params(axis='y', which='minor', color='#999999')
-  ax.grid(visible=True, which='both')
+  axes[0].minorticks_on()
+  axes[0].tick_params(axis='y', which='major', color='#666666')
+  axes[0].tick_params(axis='y', which='minor', color='#999999')
+  axes[0].grid(visible=True, which='both')
   plt.xlabel('Epoch')
   plt.ylabel('Loss')
 

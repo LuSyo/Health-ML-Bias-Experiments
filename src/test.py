@@ -70,22 +70,26 @@ def test_dcevae(model, test_loader, logger, args):
   # 1. Sex classifier performance
   u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
     np.stack(test_results['u_desc']),
-    test_results['sens']
+    test_results['sens'],
+    args.seed
   )
 
   x_desc_sens_auc_mean, x_desc_sens_auc_std = run_sens_classifier(
     np.stack(test_results['x_desc']),
-    test_results['sens']
+    test_results['sens'],
+    args.seed
   )
 
   u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
     np.stack(test_results['u_corr']),
-    test_results['sens']
+    test_results['sens'],
+    args.seed
   )
 
   x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
     np.stack(test_results['x_corr']),
-    test_results['sens']
+    test_results['sens'],
+    args.seed
   )
 
   # 2. Counterfactual invariance
