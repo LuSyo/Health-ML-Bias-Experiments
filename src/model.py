@@ -125,14 +125,11 @@ class CEVAEHE(nn.Module):
     self.discriminator = nn.Sequential(
         nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
-        nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
-        nn.Dropout(p=0.3),
         nn.Linear(self.h_dim, self.h_dim),
         nn.LeakyReLU(0.2, True),
-        nn.Dropout(p=0.3),
-        nn.Linear(self.h_dim, 2)
+        nn.Linear(self.h_dim, 1)
     )
 
     self.init_params()
@@ -355,9 +352,8 @@ class CEVAEHE(nn.Module):
   def tc_loss(self, u_desc, s_soc):
     sample_size = u_desc.size(0)
 
-    # Discriminator prediction targets
-    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
-    target_flipped = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+    # Discriminator at chance level
+    target_chance = torch.full((sample_size,), 0.5, dtype=torch.float).to(self.device)
 
     # process sensitive feature
     s_soc_p = self._process_features(s_soc, self.sens_meta)
@@ -365,13 +361,13 @@ class CEVAEHE(nn.Module):
 
     ## VAE LOSS
     input_disc_att = torch.cat((u_desc, s_soc_p), dim=1)
-    disc_logits_real_att = self.discriminate(input_disc_att)
+    disc_logit_real_att = self.discriminate(input_disc_att)
 
     input_disc_flipped_att = torch.cat((u_desc, s_soc_flipped_p), dim=1)
-    disc_logits_flipped_att = self.discriminate(input_disc_flipped_att)
+    disc_logit_flipped_att = self.discriminate(input_disc_flipped_att)
 
-    tc_L = nn.CrossEntropyLoss()(disc_logits_real_att, target_flipped)\
-          + nn.CrossEntropyLoss()(disc_logits_flipped_att, target_real)
+    tc_L = nn.BCEWithLogitsLoss()(disc_logit_real_att, target_chance)\
+          + nn.BCEWithLogitsLoss()(disc_logit_flipped_att, target_chance)
     
     return tc_L
   
@@ -379,8 +375,8 @@ class CEVAEHE(nn.Module):
     sample_size = u_desc.size(0)
 
     # Discriminator prediction targets
-    target_real = torch.ones(sample_size, dtype=torch.long).to(self.device)
-    target_flipped = torch.zeros(sample_size, dtype=torch.long).to(self.device)
+    target_real = torch.full((sample_size,), 0.9, dtype=torch.float).to(self.device)
+    target_flipped = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
 
     # process sensitive feature
     s_soc_p = self._process_features(s_soc, self.sens_meta)
@@ -390,14 +386,14 @@ class CEVAEHE(nn.Module):
     u_desc_det = u_desc.detach()
 
     input_disc_det = torch.cat((u_desc_det, s_soc_p), dim=1)
-    disc_logits_real = self.discriminate(input_disc_det)
+    disc_logit_real = self.discriminate(input_disc_det)
 
     input_disc_flipped = torch.cat((u_desc_det, s_soc_flipped_p), dim=1)
-    disc_logits_flipped = self.discriminate(input_disc_flipped)
+    disc_logit_flipped = self.discriminate(input_disc_flipped)
 
     # Discriminator Loss
-    disc_L = nn.CrossEntropyLoss()(disc_logits_real, target_real)\
-            + nn.CrossEntropyLoss()(disc_logits_flipped, target_flipped)
+    disc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_real)\
+            + nn.BCEWithLogitsLoss()(disc_logit_flipped, target_flipped)
     
     return disc_L
 
@@ -525,7 +521,7 @@ class CEVAEHE(nn.Module):
     recon_L = desc_recon_L + corr_recon_L + y_recon_L
 
     # KL loss
-    kl_L = self.kl_loss(mu_corr, logvar_corr) + self.kl_loss(mu_desc, logvar_desc)
+    kl_L = self.kl_loss(mu_corr, logvar_corr) + 1.5*self.kl_loss(mu_desc, logvar_desc)
     
 
     # TC loss
@@ -569,26 +565,58 @@ class CEVAEHE(nn.Module):
            mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
 
 class EarlyStopping:
-  def __init__(self, patience=10, min_delta=0, checkpoint_path='cevae_he_best.pt'):
+  def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10):
     self.patience = patience
     self.min_delta = min_delta
     self.checkpoint_path = checkpoint_path
     self.counter = 0
-    self.best_loss = None
+    self.best_recon = None
+    self.ema_tc = None
+    self.ema_recon = None
     self.early_stop = False
+    self.alpha = alpha
+    self.start_epoch = start_epoch
 
-  def __call__(self, val_loss, model):
-        if self.best_loss is None:
-            self.best_loss = val_loss
-            self.save_checkpoint(model)
-        elif val_loss > self.best_loss - self.min_delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_loss = val_loss
-            self.save_checkpoint(model)
-            self.counter = 0
+  def __call__(self, current_recon, current_tc, checkpoint_dict, current_epoch):
+    if current_epoch < self.start_epoch:
+        return 
 
-  def save_checkpoint(self, model):
-      torch.save(model.state_dict(), self.checkpoint_path)
+    # Priority 1. Monitor stability of TC loss
+    if self.ema_tc is None:
+        self.ema_tc = current_tc
+        tc_delta = 0
+        tc_is_stable = False
+    else:
+        prev_ema_tc = self.ema_tc
+        self.ema_tc = (self.alpha * current_tc) + ((1 - self.alpha) * self.ema_tc)
+        tc_delta = abs(self.ema_tc - prev_ema_tc) 
+        tc_is_stable = tc_delta < self.min_delta
+
+    # Priority 2. Monitor minimal Recon loss
+    if self.ema_recon is None:
+      self.ema_recon = current_recon
+    else:
+      self.ema_recon = (self.alpha * current_recon) + ((1 - self.alpha) * self.ema_recon)
+
+    if self.best_recon is None:
+        self.best_recon = self.ema_recon
+        recon_improved = False
+    else:
+        recon_improved = self.ema_recon < self.best_recon - self.min_delta
+
+    # Increment the counter only if recon has not improved AND TC is stable
+    if not recon_improved and tc_is_stable:
+      self.counter += 1
+      if self.counter == 0:
+        self.save_checkpoint(checkpoint_dict)
+    else: 
+      self.counter = 0
+      if recon_improved:
+        self.best_recon = self.ema_recon
+        self.save_checkpoint(checkpoint_dict)
+
+    if self.counter >= self.patience:
+      self.early_stop = True    
+
+  def save_checkpoint(self, checkpoint_dict):
+      torch.save(checkpoint_dict, self.checkpoint_path)

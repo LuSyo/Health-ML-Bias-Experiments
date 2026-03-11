@@ -1,3 +1,5 @@
+import argparse
+
 import numpy as np
 import pandas as pd
 import torch
@@ -5,6 +7,7 @@ import torch.optim as optim
 import os
 from src.config import Config
 from src.metrics import calculate_performance_metrics
+from src.model import EarlyStopping
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
   if epoch < warm_up_epochs:
@@ -25,8 +28,16 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
   discrim_params = [param for name, param in model.named_parameters() if 'discriminator' in name]
   main_params = [param for name, param in model.named_parameters() if 'discriminator' not in name]
-  discrim_optimiser = optim.Adam(discrim_params, lr=args.disc_lr)
-  main_optimiser = optim.Adam(main_params, lr=args.vae_lr)
+  discrim_optimiser = optim.Adam(discrim_params, lr=args.disc_lr, betas=(0.9, 0.999))
+  main_optimiser = optim.Adam(main_params, lr=args.vae_lr, betas=(0.9, 0.999))
+
+  model_path = f'{args.root_dir}{Config.MODELS_DIR}'
+  os.makedirs(model_path, exist_ok=True)
+  checkpoint_file = f'{model_path}{args.exp_name}_dcevae.pth'
+  torch.serialization.add_safe_globals([argparse.Namespace])
+
+  early_stopping = EarlyStopping(patience=10, checkpoint_path=checkpoint_file, 
+                                 start_epoch=max(args.kl_warm_up, args.tc_warm_up, args.distill_warm_up))
 
   training_log = []
   epoch_metrics_log = []
@@ -83,24 +94,25 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       # DISC LOSS
       # clear discriminator gradients
       discrim_optimiser.zero_grad()
-      disc_L = model.disc_loss(u_desc, x_sens)
 
-      # Discriminator backpropagation
-      disc_L.backward(retain_graph=True)
+      if i % args.disc_step == 0:
+        disc_L = model.disc_loss(u_desc, x_sens)
 
-      # Capture the norms of the discriminator's gradients
-      disc_input_norm = get_mean_grad_norm(model.discriminator[0])
-      epoch_grad_norms['disc_input_grad_norm'].append(disc_input_norm)
-      disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
-      epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)
+        # Discriminator backpropagation
+        disc_L.backward(retain_graph=True)
 
-      enc_desc_norm = get_mean_grad_norm(model.encoder_desc)
-      epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
-      enc_corr_norm = get_mean_grad_norm(model.encoder_corr)
-      epoch_grad_norms['enc_corr_grad_norm'].append(enc_corr_norm)
+        # Capture the norms of the discriminator's gradients
+        disc_input_norm = get_mean_grad_norm(model.discriminator[0])
+        epoch_grad_norms['disc_input_grad_norm'].append(disc_input_norm)
+        disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
+        epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)
 
-      # Step both optimisers
-      discrim_optimiser.step()
+        # Step both optimisers
+        discrim_optimiser.step()
+      else:
+        with torch.no_grad():
+          disc_L = model.disc_loss(u_desc, x_sens)
+
       main_optimiser.step()
 
       all_y_true.append(y.cpu().numpy())
@@ -122,6 +134,13 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
       epoch_metrics['disc_L'].append(disc_L.item())
       epoch_metrics['distill_L'].append(distill_L.item())
       epoch_metrics['redun_L'].append(redund_L.item())
+
+      
+      # DIAGNOSIS
+      enc_desc_norm = get_mean_grad_norm(model.encoder_desc)
+      epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
+      enc_corr_norm = get_mean_grad_norm(model.encoder_corr)
+      epoch_grad_norms['enc_corr_grad_norm'].append(enc_corr_norm)
 
     # Epoch summary
     avg_train_loss = np.mean(epoch_metrics['total_vae_loss'])
@@ -161,33 +180,35 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
     # Validation
     model.eval()
-    val_vae_loss = []
+    val_recon_losses = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
         x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2=\
           [tensor.to(device) for tensor in batch]
-        v_vae_loss, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y,
+        _, desc_recon_L, corr_recon_L, y_recon_L, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y,
                                               x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2)
-        val_vae_loss.append(v_vae_loss.item())
+        val_recon_losses.append((desc_recon_L + corr_recon_L + y_recon_L).item())
 
-    avg_val_loss = np.mean(val_vae_loss)
-    training_log[-1]['avg_val_loss'] = avg_val_loss
+    avg_val_recon_loss = np.mean(val_recon_losses)
+    training_log[-1]['avg_val_recon_loss'] = avg_val_recon_loss
 
-    epoch_metrics_log.append(epoch_metrics)
+    checkpoint_dict = {
+      'epoch': epoch,
+      'model_state_dict': model.state_dict(),
+      'optimizer_main_state_dict': main_optimiser.state_dict(),
+      'discrim_optim_state_dict': discrim_optimiser.state_dict(),
+      'args': args
+    }
 
-    logger.info(f'Avg VAE Train Loss: {avg_train_loss}')
-    logger.info(f'Avg VAE Validation Loss: {avg_val_loss}')
-    logger.info(f'Training accuracy: {perf_metrics['accuracy']}')
+    early_stopping(avg_val_recon_loss, training_log[-1]['avg_tc_loss'], checkpoint_dict, epoch)
+    
+    if early_stopping.early_stop:
+        logger.info(f"Early stopping triggered at epoch {epoch}")
+        break
   
-  model_path = f'{args.root_dir}{Config.MODELS_DIR}'
-  os.makedirs(model_path, exist_ok=True)
-  torch.save({
-    'epoch': args.n_epochs,
-    'model_state_dict': model.state_dict(),
-    'optimizer_main_state_dict': main_optimiser.state_dict(),
-    'discrim_optim_state_dict': discrim_optimiser.state_dict(),
-    'args': args
-  }, f'{model_path}{args.exp_name}_dcevae.pth')
-  logger.info(f'DCEVAE model saved to {model_path}')
+  logger.info(f"Loading best weights from {checkpoint_file}")
+  best_state = torch.load(checkpoint_file, weights_only=True)
+  model.load_state_dict(best_state['model_state_dict'])
+  logger.info(f'model trained for {best_state['epoch']} epochs')
   
-  return training_log, epoch_metrics_log, last_train_results
+  return training_log, last_train_results

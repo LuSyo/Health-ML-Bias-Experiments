@@ -5,11 +5,14 @@ from sklearn.manifold import TSNE
 
 def train_val_loss_curve(training_metrics, show=False):
   fig, ax = plt.subplots(figsize=(8, 4))
-  sns.lineplot(x=training_metrics.index, y=training_metrics["avg_train_loss"], ax=ax, label='Train VAE Loss', errorbar=None)
-  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_loss"], ax=ax, label='Val VAE Loss', errorbar=None)
+  avg_train_recon_loss = training_metrics["avg_corr_recon_loss"]\
+                        + training_metrics["avg_desc_recon_loss"]\
+                        + training_metrics["avg_y_recon_loss"]
+  sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=ax, label='Train Reconstruction Loss', errorbar=None)
+  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_recon_loss"], ax=ax, label='Val Reconstruction Loss', errorbar=None)
   plt.legend()
   plt.xlabel('Epoch')
-  plt.ylabel('Total VAE Loss')
+  plt.ylabel('Total Reconstruction Loss')
 
   if show: plt.show()
 

@@ -51,6 +51,7 @@ def main():
 
     # Data loaders
     train_loader, val_loader, test_loader = make_bucketed_loader(dataset, feature_mapping,
+                                                                 test_size=0.2,
                                                                  batch_size=args.batch_size, seed=args.seed)
 
     # Feature metadata
@@ -66,7 +67,7 @@ def main():
     logger.info(f'U_corr dimension: {model.uc_dim}')
     logger.info(f'U_desc dimension: {model.ud_dim}')
     
-    training_log, _, train_results = train_dcevae(
+    training_log, train_results = train_dcevae(
       model,
       train_loader,
       val_loader,
