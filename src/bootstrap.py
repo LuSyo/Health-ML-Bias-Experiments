@@ -32,11 +32,11 @@ def main():
   logger.info(f'Latent spaces dataset: {args.latent_dataset}')
 
   try:
-    # Load the dataset
-    dataset = pd.read_csv(Config.DATA_DIR + args.data)
-
     # Load the feature mapping
     feature_mapping = load_feature_mapping(args.mapping)
+
+    # Load the dataset
+    dataset = pd.read_csv(Config.DATA_DIR + args.data)
 
     # Load the latent spaces dataset
     latents_df = pd.read_csv(Config.DATA_DIR + args.latent_dataset)
@@ -55,14 +55,31 @@ def main():
     model_state = torch.load(model_path, weights_only=True)
     cevaehe.load_state_dict(model_state['model_state_dict']) 
 
-    # Baseline features and target class
+
+    # Define feature columns to make sure that factual and coutnerfactual datasets
+    # have the same column order
+    x_ind_col = [f['name'] for f in feature_mapping['ind']]
+    x_desc_col = [f['name'] for f in feature_mapping['desc']]
+    x_corr_col = [f['name'] for f in feature_mapping['corr']]
+    x_sens_col = [f['name'] for f in feature_mapping['sens']]
+    feature_cols = x_ind_col + x_desc_col + x_corr_col
     target = feature_mapping['target']['name']
-    X = dataset.drop([target], axis=1)
+
+    # Baseline features and target class
+    X = dataset[feature_cols]
+    X['s_bio'] = dataset[x_sens_col[0]]
+    X['s_soc'] = dataset[x_sens_col[0]]
     y = dataset[target]
 
-    # TO DO: merge latents and Xind into fair dataset
+    # Sociological counterfactual
+    X_soc_cf = counterfactuals_df[x_desc_col].merge(dataset[x_ind_col + x_corr_col],
+                                                             left_index=True,
+                                                             right_index=True)[feature_cols]
+    X_soc_cf['s_bio'] = dataset[x_sens_col[0]]
+    X_soc_cf['s_soc'] = 1 - dataset[x_sens_col[0]]
 
-    # TO DO: merge cf X with Xind, and define y_cf
+    # Merge latents, Xsens and Xind into fair features dataframe
+    fair_X = latents_df.merge(dataset[x_ind_col + x_sens_col], right_index=True, left_on='patient_index')
 
     sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.2, random_state=args.seed)
 

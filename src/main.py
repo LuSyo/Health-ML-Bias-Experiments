@@ -111,8 +111,8 @@ def main():
     datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
     os.makedirs(datasets_path, exist_ok=True)
     counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, dataset, feature_mapping, args)
-    counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv')
-    latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv')
+    counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
+    latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

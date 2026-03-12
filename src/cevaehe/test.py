@@ -193,7 +193,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           # Latent variables 
           u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c').reset_index(drop=True)   
           u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d').reset_index(drop=True)   
-          batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True) 
+          batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True, suffixes=(None,'_dup')).drop(['patient_index_dup'], axis=1)
 
           all_latents.append(batch_latents)
 
