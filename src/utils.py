@@ -2,7 +2,7 @@ import argparse
 import random
 import numpy as np
 import torch
-from src.config import Config
+from config import Config
 import datetime
 import os
 import json
@@ -12,10 +12,13 @@ import sys
 def parse_args():
   date_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
-  parser = argparse.ArgumentParser(description="DCEVAE Training and Testing Pipeline")
+  parser = argparse.ArgumentParser(description="CEVAE-HE Training and Testing Pipeline")
 
   parser.add_argument('--data', type=str)
   parser.add_argument('--mapping', type=str)
+  parser.add_argument('--cevaehe', type=str, default=None)
+  parser.add_argument('--cf_dataset', type=str, default=None)
+  parser.add_argument('--latent_dataset', type=str, default=None)
 
   parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)
   parser.add_argument('--n_epochs', type=int, default=Config.N_EPOCHS)
@@ -43,6 +46,9 @@ def parse_args():
   parser.add_argument('--root_dir', type=str, default='')
 
   parser.add_argument('--device', type=str, default=Config.DEVICE)
+
+  parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
+  parser.add_argument('--n_runs', type=str, default=Config.N_RUNS)
 
   return parser.parse_args()
 

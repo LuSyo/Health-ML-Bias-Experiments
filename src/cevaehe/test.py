@@ -1,10 +1,10 @@
 import torch
 import numpy as np
 import pandas as pd
-from src.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier
-from src.metrics import calculate_performance_metrics, stratified_perf
+from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier
+from metrics import calculate_performance_metrics, stratified_perf
 
-def test_dcevae(model, test_loader, logger, args):
+def test_ceveahe(model, test_loader, logger, args):
 
   device = args.device
   model.eval()
@@ -123,14 +123,14 @@ def test_dcevae(model, test_loader, logger, args):
 
   return test_results, perf_metrics, strat_perf_metrics
 
-def generate_fair_dataset(model, dataset, feature_mapping, args, output_path):
+def generate_fair_dataset(model, dataset, feature_mapping, args):
   """
     Generates a parallel CSV of latents and counterfactuals indexed to the original data.
   """
   model.eval()
   device = args.device
 
-  m_samples = 3
+  m_samples = args.m_samples
   
   col_ind = [f['name'] for f in feature_mapping['ind']]
   col_desc = [f['name'] for f in feature_mapping['desc']]
@@ -198,12 +198,11 @@ def generate_fair_dataset(model, dataset, feature_mapping, args, output_path):
           all_latents.append(batch_latents)
 
 
-  # Concatenate and save
+  # Concatenate and reset index
   counterfactuals_df = pd.concat(all_counterfactuals)  
-  counterfactuals_df.to_csv(f'{output_path}/counterfactuals.csv')
-  latent_spaces_df = pd.concat(all_latents).reset_index(drop=True)   
-  latent_spaces_df.to_csv(f'{output_path}/latent_spaces.csv')
-  return
+  latent_spaces_df = pd.concat(all_latents).reset_index(drop=True)
+
+  return counterfactuals_df, latent_spaces_df
 
 def process_latent_samples(samples, patient_indices, latent_name):
   '''

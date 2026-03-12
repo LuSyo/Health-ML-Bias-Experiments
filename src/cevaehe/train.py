@@ -5,9 +5,9 @@ import pandas as pd
 import torch
 import torch.optim as optim
 import os
-from src.config import Config
-from src.metrics import calculate_performance_metrics
-from src.model import EarlyStopping
+from config import Config
+from metrics import calculate_performance_metrics
+from cevaehe.model import EarlyStopping
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
   if epoch < warm_up_epochs:
@@ -21,7 +21,7 @@ def get_mean_grad_norm(model):
           norms.append(param.grad.norm(2).item())
   return np.mean(norms)
 
-def train_dcevae(model, train_loader, val_loader, logger, args):
+def train_cevaehe(model, train_loader, val_loader, logger, args):
   device = args.device
   model.to(device)
   model = model.train()
@@ -33,7 +33,7 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
 
   model_path = f'{args.root_dir}{Config.MODELS_DIR}'
   os.makedirs(model_path, exist_ok=True)
-  checkpoint_file = f'{model_path}{args.exp_name}_dcevae.pth'
+  checkpoint_file = f'{model_path}{args.exp_name}_cevaehe.pth'
   torch.serialization.add_safe_globals([argparse.Namespace])
 
   early_stopping = EarlyStopping(patience=10, checkpoint_path=checkpoint_file, 

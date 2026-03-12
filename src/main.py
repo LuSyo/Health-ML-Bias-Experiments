@@ -1,14 +1,14 @@
 import pandas as pd
 import numpy as np
 import os
-from src.config import Config
-from src.data_loader import make_bucketed_loader
-from src.model import CEVAEHE
-from src.train import train_dcevae
-from src.test import generate_fair_dataset, test_dcevae
-from src.utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
-from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
-from src.metrics import get_cca
+from config import Config
+from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
+from cevaehe.data_loader import make_bucketed_loader
+from cevaehe.model import CEVAEHE
+from cevaehe.train import train_cevaehe
+from cevaehe.test import generate_fair_dataset, test_ceveahe
+from cevaehe.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
+from metrics import get_cca
 
 def main():
   args = parse_args()
@@ -67,7 +67,7 @@ def main():
     logger.info(f'U_corr dimension: {model.uc_dim}')
     logger.info(f'U_desc dimension: {model.ud_dim}')
     
-    training_log, train_results = train_dcevae(
+    training_log, train_results = train_cevaehe(
       model,
       train_loader,
       val_loader,
@@ -93,7 +93,7 @@ def main():
     # grad_norm_fig = grad_curve(training_metrics)
     # grad_norm_fig.savefig(f'{results_path}/grad_norm_curve.png', bbox_inches='tight')
 
-    test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
+    test_results, perf_metrics, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
 
     test_u_clustering_analysis_fig = u_clustering_analysis(test_results)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
@@ -109,7 +109,10 @@ def main():
 
     # Generate counterfactual and latent space datasets (fair dataset)
     datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
-    generate_fair_dataset(model, dataset, feature_mapping, args, datasets_path)
+    os.makedirs(datasets_path, exist_ok=True)
+    counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, dataset, feature_mapping, args)
+    counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv')
+    latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv')
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
