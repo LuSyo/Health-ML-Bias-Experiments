@@ -122,3 +122,106 @@ def test_dcevae(model, test_loader, logger, args):
   logger.info(f'Internal Total Effect (TE) Error: {internal_te_error:.4f}')
 
   return test_results, perf_metrics, strat_perf_metrics
+
+def generate_fair_dataset(model, dataset, feature_mapping, args, output_path):
+  """
+    Generates a parallel CSV of latents and counterfactuals indexed to the original data.
+  """
+  model.eval()
+  device = args.device
+
+  m_samples = 3
+  
+  col_ind = [f['name'] for f in feature_mapping['ind']]
+  col_desc = [f['name'] for f in feature_mapping['desc']]
+  col_corr = [f['name'] for f in feature_mapping['corr']] 
+  col_sens = [f['name'] for f in feature_mapping['sens']]
+  target_name = feature_mapping['target']['name']
+
+  all_counterfactuals = []
+  all_latents = []
+  batch_size = args.batch_size
+
+  with torch.no_grad():
+      for i in range(0, len(dataset), batch_size):
+          j = min(i+batch_size, len(dataset))
+          batch_df = dataset.iloc[i:j]
+          
+          # Convert to tensors
+          x_ind = torch.tensor(batch_df[col_ind].values, dtype=torch.float32).to(device)
+          x_desc = torch.tensor(batch_df[col_desc].values, dtype=torch.float32).to(device)
+          x_corr = torch.tensor(batch_df[col_corr].values, dtype=torch.float32).to(device)
+          s_bio = torch.tensor(batch_df[col_sens].values, dtype=torch.float32).to(device)
+          s_soc = s_bio.clone().to(device)
+          y = torch.tensor(batch_df[target_name].values, dtype=torch.float32).view(-1, 1).to(device)
+
+          ## INFERENCE PASS 
+          # To generate latent variable samples and counterfactual features
+          # Using y=None to invoke inference encoders q(u|x, s)
+          mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, y=None)        
+          
+          _, _, _, x_desc_cf, x_corr_cf, *_ = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
+
+          u_c_samples = model.sample_latent(mu_c_inf, logvar_c_inf, m_samples)
+          u_d_samples = model.sample_latent(mu_d_inf, logvar_d_inf, m_samples)  
+
+          ## ABDUCTION PASS
+          # To generate counterfactual outcome for IECO Ground Truth
+          # Using y=y to invoke adbuction encoders q(u|x, s, y)
+          _, _, _, mu_d_abd = model.encode(x_desc, x_corr, x_ind, s_bio, y=y)
+          
+          # Get Sociological Counterfactual Outcome Y'
+          _, _, _, _, _, y_soc_cf_logits, _, _ = model.decode(mu_d_abd, mu_c_inf, x_ind, s_bio, s_soc)
+          y_soc_cf_prob = torch.sigmoid(y_soc_cf_logits)
+
+          # DATASETS CONSTRUCTION
+          # Counterfactual variables and outcomes
+          ref_index = batch_df.index.to_numpy()
+          batch_cf = pd.DataFrame(index=ref_index)
+
+          # CF Outcomes and Reconstructions
+          batch_cf['y_soc_cf_prob'] = y_soc_cf_prob.cpu().numpy().flatten()
+
+          # # x_desc_cf contains multiple features; map them back to names
+          for i, feature in enumerate(feature_mapping['desc']):
+              batch_cf[feature['name']] = x_desc_cf[:, i].cpu().numpy()
+          for i, feature in enumerate(feature_mapping['corr']):
+              batch_cf[feature['name']] = x_corr_cf[:, i].cpu().numpy()
+
+          all_counterfactuals.append(batch_cf)
+
+          # Latent variables 
+          u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c').reset_index(drop=True)   
+          u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d').reset_index(drop=True)   
+          batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True) 
+
+          all_latents.append(batch_latents)
+
+
+  # Concatenate and save
+  counterfactuals_df = pd.concat(all_counterfactuals)  
+  counterfactuals_df.to_csv(f'{output_path}/counterfactuals.csv')
+  latent_spaces_df = pd.concat(all_latents).reset_index(drop=True)   
+  latent_spaces_df.to_csv(f'{output_path}/latent_spaces.csv')
+  return
+
+def process_latent_samples(samples, patient_indices, latent_name):
+  '''
+    Converts a list of M sample tensors into a long-format dataframe conserving the patient indices
+  '''
+  # samples_3d = np.array(samples)
+  _, m_samples, latent_dim = samples.shape
+
+  # Reshape to (batch_size, M_samples, latent_dim)
+  # => keeps all samples for one patient together
+  reshaped_samples = samples.reshape(-1, latent_dim)
+
+  # Create repeated patient indices
+  repeated_indices = np.repeat(patient_indices, m_samples)
+
+  # Create dataframe
+  column_names = [f"{latent_name}_dim{i}" for i in range(latent_dim)]
+  df = pd.DataFrame(reshaped_samples, columns=column_names)
+  df.insert(0, 'patient_index', repeated_indices)
+
+  return df

@@ -5,7 +5,7 @@ from src.config import Config
 from src.data_loader import make_bucketed_loader
 from src.model import CEVAEHE
 from src.train import train_dcevae
-from src.test import test_dcevae
+from src.test import generate_fair_dataset, test_dcevae
 from src.utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
 from src.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
 from src.metrics import get_cca
@@ -90,8 +90,8 @@ def main():
     train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
     train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
 
-    grad_norm_fig = grad_curve(training_metrics)
-    grad_norm_fig.savefig(f'{results_path}/grad_norm_curve.png', bbox_inches='tight')
+    # grad_norm_fig = grad_curve(training_metrics)
+    # grad_norm_fig.savefig(f'{results_path}/grad_norm_curve.png', bbox_inches='tight')
 
     test_results, perf_metrics, strat_perf_metrics = test_dcevae(model, test_loader, logger, args)
 
@@ -106,6 +106,10 @@ def main():
     u_corr_matrix = np.stack(test_results['u_corr'].values)
     u_u_cca = get_cca(u_desc_matrix, u_corr_matrix)
     logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca:.4f}')
+
+    # Generate counterfactual and latent space datasets (fair dataset)
+    datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
+    generate_fair_dataset(model, dataset, feature_mapping, args, datasets_path)
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

@@ -285,6 +285,11 @@ class CEVAEHE(nn.Module):
     std = torch.exp(0.5 * logvar)
     eps = torch.randn_like(std).to(self.device)
     return mu + eps * std
+  
+  def sample_latent(self, mu, logvar, m_samples):
+    samples = torch.stack([self.reparameterize(mu, logvar) for _ in range(m_samples)], dim=1)
+
+    return samples.cpu().numpy()
 
   def reconstruction_loss(self, v_pred, v, v_meta):
     '''
@@ -607,7 +612,7 @@ class EarlyStopping:
     # Increment the counter only if recon has not improved AND TC is stable
     if not recon_improved and tc_is_stable:
       self.counter += 1
-      if self.counter == 0:
+      if self.counter == 1:
         self.save_checkpoint(checkpoint_dict)
     else: 
       self.counter = 0

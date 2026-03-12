@@ -209,6 +209,6 @@ def train_dcevae(model, train_loader, val_loader, logger, args):
   logger.info(f"Loading best weights from {checkpoint_file}")
   best_state = torch.load(checkpoint_file, weights_only=True)
   model.load_state_dict(best_state['model_state_dict'])
-  logger.info(f'model trained for {best_state['epoch']} epochs')
+  logger.info(f'model trained for {best_state['epoch'] + 1} epochs')
   
   return training_log, last_train_results
