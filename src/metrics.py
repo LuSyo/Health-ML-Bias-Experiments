@@ -28,16 +28,18 @@ def stratified_perf(y_true, y_pred, y_prob, sens):
         y_prob[group_1]
     )
 
-    strat_perf_summary = pd.DataFrame({
-        'group': [0, 1],
-        'accuracy': [perf_metrics_0['accuracy'], perf_metrics_1['accuracy']],
-        'roc_auc': [perf_metrics_0['roc_auc'], perf_metrics_1['roc_auc']],
-        'fnr': [perf_metrics_0['fnr'], perf_metrics_1['fnr']],
-        'fpr': [perf_metrics_0['fpr'], perf_metrics_1['fpr']],
-        'brier_score': [perf_metrics_0['brier_score'], perf_metrics_1['brier_score']],
-    })
-
-    return strat_perf_summary
+    return {
+        "accuracy_0": perf_metrics_0['accuracy'],
+        "roc_auc_0": perf_metrics_0['roc_auc'],
+        "fnr_0": perf_metrics_0['fnr'],
+        "fpr_0": perf_metrics_0['fpr'],
+        "brier_score_0": perf_metrics_0['brier_score'],
+        "accuracy_1": perf_metrics_1['accuracy'],
+        "roc_auc_1": perf_metrics_1['roc_auc'],
+        "fnr_1": perf_metrics_1['fnr'],
+        "fpr_1": perf_metrics_1['fpr'],
+        "brier_score_1": perf_metrics_1['brier_score']
+    }
 
 def get_cca(set_a, set_b):
     cca = CCA(n_components=1)

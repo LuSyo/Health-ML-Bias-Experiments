@@ -48,7 +48,7 @@ def parse_args():
   parser.add_argument('--device', type=str, default=Config.DEVICE)
 
   parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
-  parser.add_argument('--n_runs', type=str, default=Config.N_RUNS)
+  parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
 
   return parser.parse_args()
 

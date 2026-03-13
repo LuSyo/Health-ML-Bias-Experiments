@@ -98,7 +98,17 @@ def main():
     test_u_clustering_analysis_fig = u_clustering_analysis(test_results)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
-    strat_perf_metrics.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
+
+    # save stratified perf metrics as a markdown table
+    strat_perf_summary = pd.DataFrame({
+        'group': [0, 1],
+        'accuracy': [strat_perf_metrics['accuracy_0'], strat_perf_metrics['accuracy_1']],
+        'roc_auc': [strat_perf_metrics['roc_auc_0'], strat_perf_metrics['roc_auc_1']],
+        'fnr': [strat_perf_metrics['fnr_0'], strat_perf_metrics['fnr_1']],
+        'fpr': [strat_perf_metrics['fpr_0'], strat_perf_metrics['fpr_1']],
+        'brier_score': [strat_perf_metrics['brier_score_0'], strat_perf_metrics['brier_score_1']],
+    })
+    strat_perf_summary.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
 
     # CAUSAL MODEL VALIDATION
     # Independence of u_desc and u_corr
