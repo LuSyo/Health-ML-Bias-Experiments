@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier
+from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity
 from metrics import calculate_performance_metrics, stratified_perf
 
 def test_ceveahe(model, test_loader, logger, args):
@@ -96,6 +96,18 @@ def test_ceveahe(model, test_loader, logger, args):
   u_desc_recon_loss = latent_recon_loss(
     np.stack(test_results['u_desc']), 
     np.stack(test_results['u_desc_cf']))
+
+  # 3. Verify utility of Udesc
+  fidelity_scores = evaluate_latent_utility_fidelity(
+    np.stack(test_results['u_desc']),
+    np.stack(test_results['x_desc']),
+    model.desc_meta,
+    seed=args.seed
+  )
+
+  logger.info("--- Latent Utility Fidelity (Linear Probing) ---")
+  for feature, score in fidelity_scores.items():
+    logger.info(f"{feature}: {score:.4f}")
   
   ## Calculate the Total Effect Error
   te_error, obs_disparity, est_ate, internal_te_error = calculate_te_error(

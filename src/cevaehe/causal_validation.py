@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
 from sklearn.metrics import mean_squared_error
 
 def run_sens_classifier(features, target_sens, seed=4):
@@ -73,3 +74,46 @@ def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
   internal_te_error = abs(model_disparity - est_ate)
 
   return te_error, obs_disparity, est_ate, internal_te_error
+
+def evaluate_latent_utility_fidelity(u_desc, x_desc, desc_meta, seed=4):
+  """
+  Trains linear probes to predict each original feature in X_desc from U_desc.
+  Quantifies how much clinical information survived the latent bottleneck.
+  
+  Inputs:
+    u_desc: numpy array of the extracted latent variables
+    x_desc: numpy array of the original descendant features
+    desc_meta: list of dictionaries describing the features (from config/mapping)
+    
+  Outputs:
+    fidelity_scores: Dictionary of scores for each feature
+  """
+  fidelity_scores = {}
+  
+  # Iterate through each feature in the X_desc bucket
+  for i, feature_meta in enumerate(desc_meta):
+      feature_name = feature_meta['name']
+      feature_type = feature_meta['type']
+      target_y = x_desc[:, i]
+      
+      if feature_type in ['categorical', 'binary']:
+          # Classification Probe
+          probe = LogisticRegression(max_iter=1000, random_state=seed)
+          cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+          
+          # Use ROC AUC for binary, or Accuracy for multi-class
+          scoring = 'roc_auc' if feature_type == 'binary' else 'accuracy'
+          
+          scores = cross_val_score(probe, u_desc, target_y, cv=cv, scoring=scoring)
+          fidelity_scores[f"{feature_name}_{scoring}"] = scores.mean()
+          
+      elif feature_type == 'continuous':
+          # Regression Probe
+          probe = Ridge(random_state=seed)
+          cv = KFold(n_splits=5, shuffle=True, random_state=seed)
+          
+          # Use R-squared to measure variance explained
+          scores = cross_val_score(probe, u_desc, target_y, cv=cv, scoring='r2')
+          fidelity_scores[f"{feature_name}_r2"] = scores.mean()
+          
+  return fidelity_scores

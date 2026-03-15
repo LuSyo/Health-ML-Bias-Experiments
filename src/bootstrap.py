@@ -85,7 +85,7 @@ def main():
     # Merge latents, Xsens and Xind into fair features dataframe
     fair_dataset = latents_df.merge(dataset[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
 
-    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.2, random_state=args.seed)
+    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.2, random_state=42)
 
     baseline_metrics = []
     fair_0_metrics = []
@@ -107,22 +107,22 @@ def main():
       fair_test_index = fair_dataset['patient_index'].isin(test_index)
 
       fair_0_cols = u_desc_cols + u_corr_cols + x_ind_cols
-      logger.info(f'Model 0 columns: {fair_0_cols}')
+      if i == 0: logger.info(f'Model 0 columns: {fair_0_cols}')
       fair_0_X_train = fair_dataset.loc[fair_train_index, fair_0_cols]
       fair_0_X_test = fair_dataset.loc[fair_test_index, fair_0_cols]
 
       fair_1_cols = x_desc_cols + u_corr_cols + x_ind_cols
-      logger.info(f'Model 1 columns: {fair_1_cols}')
+      if i == 0: logger.info(f'Model 1 columns: {fair_1_cols}')
       fair_1_X_train = fair_dataset.loc[fair_train_index, fair_1_cols]
       fair_1_X_test = fair_dataset.loc[fair_test_index, fair_1_cols]
 
       fair_2_cols = u_desc_cols + x_corr_cols + x_ind_cols
-      logger.info(f'Model 2 columns: {fair_2_cols}')
+      if i == 0: logger.info(f'Model 2 columns: {fair_2_cols}')
       fair_2_X_train = fair_dataset.loc[fair_train_index, fair_2_cols]
       fair_2_X_test = fair_dataset.loc[fair_test_index, fair_2_cols]
 
       fair_3_cols = u_desc_cols + u_corr_cols
-      logger.info(f'Model 3 columns: {fair_3_cols}')
+      if i == 0: logger.info(f'Model 3 columns: {fair_3_cols}')
       fair_3_X_train = fair_dataset.loc[fair_train_index, fair_3_cols]
       fair_3_X_test = fair_dataset.loc[fair_test_index, fair_3_cols]
 
@@ -146,7 +146,7 @@ def main():
       _, fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
       fair_2_X_train, fair_y_train, fair_2_X_test)
       
-      logger.info("Train Fair Model 2: Ucorr, Udesc")
+      logger.info("Train Fair Model 3: Ucorr, Udesc")
       _, fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
       fair_3_X_train, fair_y_train, fair_3_X_test)
 
