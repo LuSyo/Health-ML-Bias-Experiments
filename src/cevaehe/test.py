@@ -180,7 +180,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           ## ABDUCTION PASS
           # To generate counterfactual outcome for IECO Ground Truth
           # Using y=y to invoke adbuction encoders q(u|x, s, y)
-          _, _, _, mu_d_abd = model.encode(x_desc, x_corr, x_ind, s_bio, y=y)
+          _, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, y=y)
           
           # Get Sociological Counterfactual Outcome Y'
           _, _, _, _, _, y_soc_cf_logits, _, _ = model.decode(mu_d_abd, mu_c_inf, x_ind, s_bio, s_soc)
