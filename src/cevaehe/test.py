@@ -20,7 +20,7 @@ def test_ceveahe(model, test_loader, logger, args):
       s_soc = x_sens.clone()
 
       # Infer latent variables
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, y=None)
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
@@ -29,7 +29,7 @@ def test_ceveahe(model, test_loader, logger, args):
       # Soc. Counterfactual pass to adbuct the counterfactual Udesc
       # (for invariance test)
       s_soc_flipped = 1 - s_soc
-      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, s_bio, y=None)
+      _, _, mu_desc_cf, _ = model.encode(x_desc_cf, x_corr, x_ind, s_bio, s_soc_flipped, y=None)
 
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(torch.sigmoid(y_pred_logits).cpu().numpy())
@@ -170,7 +170,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           ## INFERENCE PASS 
           # To generate latent variable samples and counterfactual features
           # Using y=None to invoke inference encoders q(u|x, s)
-          mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, y=None)        
+          mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)        
           
           _, _, _, x_desc_cf, x_corr_cf, *_ = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
 
@@ -180,7 +180,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           ## ABDUCTION PASS
           # To generate counterfactual outcome for IECO Ground Truth
           # Using y=y to invoke adbuction encoders q(u|x, s, y)
-          _, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, y=y)
+          _, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
           
           # Get Sociological Counterfactual Outcome Y'
           _, _, _, _, _, y_soc_cf_logits, _, _ = model.decode(mu_d_abd, mu_c_inf, x_ind, s_bio, s_soc)
