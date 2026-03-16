@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import os
+import gc
+
 from config import Config
 from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
 from cevaehe.data_loader import make_bucketed_loader
@@ -119,11 +121,16 @@ def main():
     logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca:.4f}')
 
     # Generate counterfactual and latent space datasets (fair dataset)
+    logger.info('Saving latent and counterfactual datasets...')
     datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
     os.makedirs(datasets_path, exist_ok=True)
     counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, dataset, feature_mapping, args)
     counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
     latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
+
+    del counterfactuals_df, latent_spaces_df
+
+    gc.collect()
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

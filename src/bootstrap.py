@@ -1,5 +1,6 @@
 import argparse
 import os
+import gc
 
 import pandas as pd
 import numpy as np
@@ -86,13 +87,15 @@ def main():
     # Merge latents, Xsens and Xind into fair features dataframe
     fair_dataset = latents_df.merge(dataset[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
 
-    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.2, random_state=42)
+    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.3, random_state=42)
 
     baseline_metrics = []
     fair_0_metrics = []
     fair_1_metrics = []
     fair_2_metrics = []
     fair_3_metrics = []
+    baseline_feature_importances = []
+    feature_names = X.columns.tolist()
 
     mean_fpr = np.linspace(0, 1, 100)
     roc_curve_data = {
@@ -143,22 +146,25 @@ def main():
 
       # Train the baseline and fair models
       logger.info("Train baseline model")
-      y_pred, y_pred_proba = train_random_forest(X_train, y_train, X_test, best_params, args.seed)
+      rf_baseline, y_pred, y_pred_proba = train_random_forest(X_train, y_train, X_test, best_params, args.seed)
+
+      importances = rf_baseline.feature_importances_
+      baseline_feature_importances.append(importances)
       
       logger.info("Train Fair Model 0: Ucorr, Udesc, Xind")
-      fair_0_y_pred, fair_0_y_pred_proba = train_random_forest(
+      _, fair_0_y_pred, fair_0_y_pred_proba = train_random_forest(
       fair_0_X_train, fair_y_train, fair_0_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 1: Ucorr, Xdesc, Xind")
-      fair_1_y_pred, fair_1_y_pred_proba = train_random_forest(
+      _, fair_1_y_pred, fair_1_y_pred_proba = train_random_forest(
       fair_1_X_train, fair_y_train, fair_1_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 2: Xcorr, Udesc, Xind")
-      fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
+      _, fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
       fair_2_X_train, fair_y_train, fair_2_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 3: Ucorr, Udesc")
-      fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
+      _, fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
       fair_3_X_train, fair_y_train, fair_3_X_test, best_params, args.seed)
 
       # TODO: run the CEVAEHE on the test set
@@ -198,6 +204,12 @@ def main():
           tpr_interp = get_interp_tpr(y_t[mask], y_p[mask], mean_fpr)
           roc_curve_data[name][group].append(tpr_interp)
 
+      print(f"Run {i}: Test set size: {len(y_test)}, Females: {np.sum(X_test['s_bio']==0)}, Female Positives: {np.sum(y_test[X_test['s_bio']==0])}")
+      print(f"Run {i}: Test set size: {len(y_test)}, Males: {np.sum(X_test['s_bio']==1)}, Male Positives: {np.sum(y_test[X_test['s_bio']==1])}")
+
+    # --- SAVE PERFORMANCE METRICS ---
+    logger.info('Saving results and cleaning up memory...')
+
     baseline_metrics_df = pd.DataFrame(baseline_metrics) 
     fair_0_metrics_df = pd.DataFrame(fair_0_metrics) 
     fair_1_metrics_df = pd.DataFrame(fair_1_metrics) 
@@ -209,6 +221,8 @@ def main():
     fair_1_metrics_df.to_csv(f'{results_path}/fair_1_metrics.csv', index=False)
     fair_2_metrics_df.to_csv(f'{results_path}/fair_2_metrics.csv', index=False)
     fair_3_metrics_df.to_csv(f'{results_path}/fair_3_metrics.csv', index=False)
+
+    # --- SAVE STRATIFIED ROC CURVES ---
 
     final_curves = {'mean_fpr': mean_fpr}
 
@@ -222,8 +236,28 @@ def main():
     roc_curves_fig = stratified_roc_curves(final_curves)
     roc_curves_fig.savefig(f'{results_path}/roc_curves.png', bbox_inches='tight', dpi=300)
 
+    # --- SAVE BASELINE FEATURE IMPORTANCES ---
+
+    avg_importances = np.mean(baseline_feature_importances, axis=0)
+    std_importances = np.std(baseline_feature_importances, axis=0)
+
+    importance_df = pd.DataFrame({
+      'feature': feature_names,
+      'importance_mean': avg_importances,
+      'importance_std': std_importances
+    }).sort_values(by='importance_mean', ascending=False)
+
+    importance_df.to_csv(f'{results_path}/baseline_feature_importances.csv', index=False)
+
+    del baseline_metrics_df, fair_0_metrics_df, fair_1_metrics_df, fair_2_metrics_df, fair_3_metrics_df
+    del final_curves
+    del importance_df
+
+    gc.collect()
+
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
 
 if __name__ == "__main__":
   main()
+

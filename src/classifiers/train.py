@@ -47,4 +47,4 @@ def train_random_forest(X_train, y_train, X_test, params, seed):
   y_pred = rf.predict(X_test)
   y_pred_proba = rf.predict_proba(X_test)[:, 1]
 
-  return [y_pred, y_pred_proba]
+  return [rf, y_pred, y_pred_proba]
