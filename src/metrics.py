@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, brier_score_loss
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, confusion_matrix, brier_score_loss
 from sklearn.cross_decomposition import CCA
 
 def calculate_performance_metrics(y_true, y_pred, y_prob):
@@ -49,3 +49,13 @@ def get_cca(set_a, set_b):
 
     # Return Pearson correlation coefficient between the projections across samples
     return np.corrcoef(set_a_c.T, set_b_c.T)[0, 1]
+
+def get_interp_tpr(y_true, y_prob, mean_fpr):
+    """
+    Calculates TPR interpolated to a common FPR grid.
+    """
+    fpr, tpr, _ = roc_curve(y_true, y_prob)
+    
+    interp_tpr = np.interp(mean_fpr, fpr, tpr)
+    interp_tpr[0] = 0.0 
+    return interp_tpr

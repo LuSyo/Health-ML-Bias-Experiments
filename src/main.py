@@ -7,7 +7,7 @@ from cevaehe.data_loader import make_bucketed_loader
 from cevaehe.model import CEVAEHE
 from cevaehe.train import train_cevaehe
 from cevaehe.test import generate_fair_dataset, test_ceveahe
-from cevaehe.plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
+from plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
 from metrics import get_cca
 
 def main():
@@ -29,6 +29,7 @@ def main():
   logger.info(f'Epochs: {args.n_epochs}')
   logger.info(f'VAE learning rate: {args.vae_lr}')
   logger.info(f'Discriminator learning rate: {args.disc_lr}')
+  logger.info(f'Discriminator learning period: {args.disc_step}')
   logger.info(f'Distillation Warm-up: {args.distill_warm_up}')
   logger.info(f'TC Loss Warm-up: {args.tc_warm_up}')
   logger.info(f'KL Warm-up: {args.kl_warm_up}')

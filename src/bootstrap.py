@@ -8,9 +8,10 @@ from sklearn.model_selection import StratifiedShuffleSplit
 
 from config import Config
 from cevaehe.model import CEVAEHE
-from classifiers.train import train_random_forest
+from classifiers.train import initial_hyperparam_tuning, train_random_forest
 from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
-from metrics import calculate_performance_metrics, stratified_perf
+from metrics import calculate_performance_metrics, stratified_perf, get_interp_tpr
+from plots import stratified_roc_curves
 
 def main():
   args = parse_args()
@@ -93,6 +94,16 @@ def main():
     fair_2_metrics = []
     fair_3_metrics = []
 
+    mean_fpr = np.linspace(0, 1, 100)
+    roc_curve_data = {
+        m: {0: [], 1: []} 
+        for m in ['baseline', 'fair_0', 'fair_1', 'fair_2', 'fair_3']
+    }
+
+    logger.info("Performing initial hyperparameter tuning...")
+    best_params = initial_hyperparam_tuning(X, y)
+    logger.info(f"Best Params found: {best_params}")
+
     for i, (train_index, test_index) in enumerate(sss.split(X, y)):
       logger.info(f'--- Start bootstrap loop {i}')
       X_train, X_test = X.iloc[train_index], X.iloc[test_index]
@@ -132,23 +143,23 @@ def main():
 
       # Train the baseline and fair models
       logger.info("Train baseline model")
-      _, y_pred, y_pred_proba = train_random_forest(X_train, y_train, X_test)
+      y_pred, y_pred_proba = train_random_forest(X_train, y_train, X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 0: Ucorr, Udesc, Xind")
-      _, fair_0_y_pred, fair_0_y_pred_proba = train_random_forest(
-      fair_0_X_train, fair_y_train, fair_0_X_test)
+      fair_0_y_pred, fair_0_y_pred_proba = train_random_forest(
+      fair_0_X_train, fair_y_train, fair_0_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 1: Ucorr, Xdesc, Xind")
-      _, fair_1_y_pred, fair_1_y_pred_proba = train_random_forest(
-      fair_1_X_train, fair_y_train, fair_1_X_test)
+      fair_1_y_pred, fair_1_y_pred_proba = train_random_forest(
+      fair_1_X_train, fair_y_train, fair_1_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 2: Xcorr, Udesc, Xind")
-      _, fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
-      fair_2_X_train, fair_y_train, fair_2_X_test)
+      fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
+      fair_2_X_train, fair_y_train, fair_2_X_test, best_params, args.seed)
       
       logger.info("Train Fair Model 3: Ucorr, Udesc")
-      _, fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
-      fair_3_X_train, fair_y_train, fair_3_X_test)
+      fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
+      fair_3_X_train, fair_y_train, fair_3_X_test, best_params, args.seed)
 
       # TODO: run the CEVAEHE on the test set
 
@@ -172,6 +183,21 @@ def main():
       fair_2_metrics.append(fair_2_global_perf | fair_2_strat_perf)
       fair_3_metrics.append(fair_3_global_perf | fair_3_strat_perf)
 
+      eval_configs = [
+          ('baseline', y_test, y_pred_proba, X_test['s_bio']),
+          ('fair_0', fair_y_test, fair_0_y_pred_proba, fair_s_ref.values),
+          ('fair_1', fair_y_test, fair_1_y_pred_proba, fair_s_ref.values),
+          ('fair_2', fair_y_test, fair_2_y_pred_proba, fair_s_ref.values),
+          ('fair_3', fair_y_test, fair_3_y_pred_proba, fair_s_ref.values),
+      ]
+
+      for name, y_t, y_p, s_ref in eval_configs:
+        for group in [0, 1]:
+          mask = (s_ref == group)
+          # Calculate interpolated TPR for this run/group
+          tpr_interp = get_interp_tpr(y_t[mask], y_p[mask], mean_fpr)
+          roc_curve_data[name][group].append(tpr_interp)
+
     baseline_metrics_df = pd.DataFrame(baseline_metrics) 
     fair_0_metrics_df = pd.DataFrame(fair_0_metrics) 
     fair_1_metrics_df = pd.DataFrame(fair_1_metrics) 
@@ -183,6 +209,18 @@ def main():
     fair_1_metrics_df.to_csv(f'{results_path}/fair_1_metrics.csv', index=False)
     fair_2_metrics_df.to_csv(f'{results_path}/fair_2_metrics.csv', index=False)
     fair_3_metrics_df.to_csv(f'{results_path}/fair_3_metrics.csv', index=False)
+
+    final_curves = {'mean_fpr': mean_fpr}
+
+    for model_name, groups in roc_curve_data.items():
+        for group_id in [0, 1]:
+            mean_tpr = np.mean(groups[group_id], axis=0)
+            mean_tpr[-1] = 1.0 
+            
+            final_curves[f"{model_name}_group_{group_id}"] = mean_tpr
+
+    roc_curves_fig = stratified_roc_curves(final_curves)
+    roc_curves_fig.savefig(f'{results_path}/roc_curves.png', bbox_inches='tight', dpi=300)
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

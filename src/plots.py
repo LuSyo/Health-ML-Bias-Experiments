@@ -178,3 +178,40 @@ def grad_curve(training_metrics, show=False):
 
   return fig
 
+import matplotlib.pyplot as plt
+
+def stratified_roc_curves(final_curves):
+    """
+    Generates and saves a high-resolution plot comparing stratified 
+    average ROC curves for all models.
+    """
+    mean_fpr = final_curves['mean_fpr']
+    models = ['baseline', 'fair_0', 'fair_1', 'fair_2', 'fair_3']
+    colors = {'group_0': 'tab:red', 'group_1': 'tab:blue'} # Female = Red, Male = Blue
+    
+    # Create a figure with subplots for each model
+    fig, axes = plt.subplots(1, 5, figsize=(25, 5), sharey=True)
+    fig.suptitle('Average Stratified ROC Curves across Bootstrap Runs', fontsize=16)
+
+    for i, model in enumerate(models):
+      ax = axes[i]
+      
+      # Plot Female Average Curve
+      tpr_f = final_curves[f"{model}_group_0"]
+      ax.plot(mean_fpr, tpr_f, color=colors['group_0'], label='Female', linewidth=2)
+      
+      # Plot Male Average Curve
+      tpr_m = final_curves[f"{model}_group_1"]
+      ax.plot(mean_fpr, tpr_m, color=colors['group_1'], label='Male', linewidth=2)
+      
+      # Add reference line
+      ax.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+      
+      ax.set_title(f'Model: {model.upper()}')
+      ax.set_xlabel('False Positive Rate')
+      if i == 0: ax.set_ylabel('True Positive Rate')
+      ax.legend(loc='lower right')
+      ax.grid(alpha=0.3)
+
+    return fig
+
