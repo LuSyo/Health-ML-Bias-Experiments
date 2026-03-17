@@ -96,7 +96,7 @@ def main():
     # grad_norm_fig = grad_curve(training_metrics)
     # grad_norm_fig.savefig(f'{results_path}/grad_norm_curve.png', bbox_inches='tight')
 
-    test_results, perf_metrics, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
+    test_results, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
 
     test_u_clustering_analysis_fig = u_clustering_analysis(test_results)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')

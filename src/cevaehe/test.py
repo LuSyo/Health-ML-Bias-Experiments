@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity
+from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity, counterfactual_sensitivity
 from metrics import calculate_performance_metrics, stratified_perf
 
 def test_ceveahe(model, test_loader, logger, args):
@@ -9,8 +9,8 @@ def test_ceveahe(model, test_loader, logger, args):
   device = args.device
   model.eval()
 
-  all_y_true, all_y_pred_prob, all_y_full_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_x_corr, all_u_desc_cf = \
-    [], [], [], [], [], [], [], [], []
+  all_y_true, all_y_pred_prob, all_y_full_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_x_corr, all_u_desc_cf = \
+    [], [], [], [], [], [], [], [], [], [], []
 
   with torch.no_grad():
     for batch in test_loader:
@@ -24,7 +24,9 @@ def test_ceveahe(model, test_loader, logger, args):
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      _, _, y_pred_logits, x_desc_cf, _, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      x_desc_pred_logits, _, y_pred_logits, x_desc_cf, _, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+
+      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
       
       # Soc. Counterfactual pass to adbuct the counterfactual Udesc
       # (for invariance test)
@@ -38,6 +40,8 @@ def test_ceveahe(model, test_loader, logger, args):
       all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
       all_x_desc.append(x_desc.cpu().numpy())
+      all_x_desc_pred.append(x_desc_pred.cpu().numpy())
+      all_x_desc_cf.append(x_desc_cf.cpu().numpy())
       all_x_corr.append(x_corr.cpu().numpy())
       all_u_desc_cf.append(mu_desc_cf.cpu().numpy())
   
@@ -50,6 +54,8 @@ def test_ceveahe(model, test_loader, logger, args):
       'u_desc': list(np.concatenate(all_u_desc)),
       'u_desc_cf': list(np.concatenate(all_u_desc_cf)),
       'x_desc': list(np.concatenate(all_x_desc)),
+      'x_desc_pred': list(np.concatenate(all_x_desc_pred)),
+      'x_desc_cf': list(np.concatenate(all_x_desc_cf)),
       'x_corr': list(np.concatenate(all_x_corr)),
   })
   test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
@@ -105,9 +111,20 @@ def test_ceveahe(model, test_loader, logger, args):
     seed=args.seed
   )
 
-  logger.info("--- Latent Utility Fidelity (Linear Probing) ---")
+  cross_fidelity_scores = evaluate_latent_utility_fidelity(
+    np.stack(test_results['u_corr']),
+    np.stack(test_results['x_desc']),
+    model.desc_meta,
+    seed=args.seed
+  )
+
+  logger.info("--- Latent Utility Fidelity ---")
   for feature, score in fidelity_scores.items():
     logger.info(f"{feature}: {score:.4f}")
+  logger.info("--- Latent Fidelity Delta ---")
+  for feature, score in cross_fidelity_scores.items():
+    logger.info(f"{feature}: {(fidelity_scores[feature] - score):.4f}")
+  logger.info("---")
   
   ## Calculate the Total Effect Error
   te_error, obs_disparity, est_ate, internal_te_error = calculate_te_error(
@@ -116,6 +133,17 @@ def test_ceveahe(model, test_loader, logger, args):
       test_results['y_full_cf_prob'].values,
       test_results['sens'].values
   )
+
+  # Counterfactual sensitivity of Xdesc features
+  sensitivity_results = counterfactual_sensitivity(
+    np.stack(test_results['x_desc_pred']),
+    np.stack(test_results['x_desc_cf']),
+    model.desc_meta
+  )
+
+  logger.info("--- Xdesc Counterfactual Sensitivity ---")
+  for feature in sensitivity_results:
+     logger.info(f'{feature['name']} score ({feature['score_type']}): {feature['score']:.4f}')
 
   ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
@@ -133,7 +161,7 @@ def test_ceveahe(model, test_loader, logger, args):
   logger.info(f'Total Effect (TE) Error: {te_error:.4f}')
   logger.info(f'Internal Total Effect (TE) Error: {internal_te_error:.4f}')
 
-  return test_results, perf_metrics, strat_perf_metrics
+  return test_results, strat_perf_metrics
 
 def generate_fair_dataset(model, dataset, feature_mapping, args):
   """

@@ -43,6 +43,36 @@ def latent_recon_loss(u, u_cf):
 
   return recon_loss / dim
 
+def counterfactual_sensitivity(v_pred, v_pred_cf, v_meta):
+    '''
+      Calculates Counterfactual Sensitivity scores for the given feature bucket, matching each feature type to the correct scoring
+    '''
+    sample_size = v_pred.shape[0]
+    sensitivity_results = []
+    for i, feature in enumerate(v_meta):
+      f_name = feature['name']
+      f_type = feature['type']
+
+      v = v_pred[:, i]
+      v_cf = v_pred_cf[:, i]
+
+      if f_type in ['categorical', 'binary']:
+        # Flip Rate: Percentage of cases where the hard-reconstructed 
+        # category or bit changed
+        changes = np.sum(v != v_cf)
+        score = changes / sample_size
+        score_type = "flip rate"
+      else:
+        # Continuous: Mean Absolute Deviation (MAD)
+        score = np.mean(np.abs(v - v_cf))
+        score_type = "MAD"
+
+      sensitivity_results.append({'name': f_name,
+                                  'score': score,
+                                  'score_type':score_type})
+
+    return sensitivity_results
+
 def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
   '''
     Calculates the Total Effect (TE) Error between observed group outcome disparities \

@@ -166,13 +166,16 @@ class CEVAEHE(nn.Module):
       Processes the input features by applying embeddings to the categorical columns
     '''
     processed = []
-    for i, feature in enumerate(x_meta):
-      col = x[:, i]
-      if feature['type'] == 'categorical':
-        processed.append(self.embeddings[feature['name']](col.long()))
-      else:
-        processed.append(col.unsqueeze(1))
-    return torch.cat(processed, dim=1)
+    if len(x_meta) > 0 :
+      for i, feature in enumerate(x_meta):
+        col = x[:, i]
+        if feature['type'] == 'categorical':
+          processed.append(self.embeddings[feature['name']](col.long()))
+        else:
+          processed.append(col.unsqueeze(1))
+      return torch.cat(processed, dim=1)
+    else:
+      return None
 
   def encode(self, x_desc, x_corr, x_ind, sens_bio, sens_soc, y=None):
     '''
@@ -185,29 +188,29 @@ class CEVAEHE(nn.Module):
     sens_bio_p = self._process_features(sens_bio, self.sens_meta)
     sens_soc_p = self._process_features(sens_soc, self.sens_meta)
 
+    input_corr = torch.cat([t for t in (x_corr_p, x_ind_p, sens_bio_p, y) 
+                              if t is not None], dim=1)
+    input_desc = torch.cat([t for t in (x_desc_p, x_ind_p, sens_soc_p, y) 
+                              if t is not None], dim=1)
     # Training abduction
     if y is not None:
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_ind_p, sens_bio_p, y), dim=1)
       h_corr = self.encoder_corr(input_corr)
       mu_corr = self.mu_corr(h_corr)
       logvar_corr = self.logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_desc_p, x_ind_p, sens_soc_p, y), dim=1)
       h_desc = self.encoder_desc(input_desc)
       mu_desc = self.mu_desc(h_desc)
       logvar_desc = self.logvar_desc(h_desc)
 
     else: #Inference
       # Correlated path encoder
-      input_corr = torch.cat((x_corr_p, x_ind_p, sens_bio_p), dim=1)
       h_corr = self.inf_encoder_corr(input_corr)
       mu_corr = self.inf_mu_corr(h_corr)
       logvar_corr = self.inf_logvar_corr(h_corr)
 
       # Descendant path encoder
-      input_desc = torch.cat((x_desc_p, x_ind_p, sens_soc_p), dim=1)
       h_desc = self.inf_encoder_desc(input_desc)
       mu_desc = self.inf_mu_desc(h_desc)
       logvar_desc = self.inf_logvar_desc(h_desc)
@@ -234,47 +237,55 @@ class CEVAEHE(nn.Module):
     sens_soc_p = self._process_features(sens_soc, self.sens_meta)
 
     # Correlated path
-    input_corr = torch.cat((u_corr, x_ind_p, sens_bio_p), dim=1)
+    input_corr = torch.cat([t for t in (u_corr, x_ind_p, sens_bio_p) 
+                              if t is not None], dim=1)
     x_corr_pred_logits = {feature['name']: self.decoder_corr[feature['name']](input_corr)\
                    for feature in self.corr_meta}
 
     # Descendant path
-    input_desc = torch.cat((u_desc, x_ind_p, sens_soc_p), dim=1)
+    input_desc = torch.cat([t for t in (u_desc, x_ind_p, sens_soc_p) 
+                              if t is not None], dim=1)
     x_desc_pred_logits = {feature['name']: self.decoder_desc[feature['name']](input_desc)\
                    for feature in self.desc_meta}
 
     # Target
-    input_target = torch.cat((u_desc, u_corr, x_ind_p, 
-                              sens_bio_p, sens_soc_p), dim=1)
+    input_target = torch.cat([t for t in (u_desc, u_corr, x_ind_p, 
+                              sens_bio_p, sens_soc_p) 
+                              if t is not None], dim=1)
     y_pred_logits = self.decoder_target(input_target)
 
     # Sociological Counterfactual
     sens_soc_cf_p = self._process_features(1 - sens_soc, self.sens_meta)
-    input_desc_cf = torch.cat((u_desc, x_ind_p, sens_soc_cf_p), dim=1)
+    input_desc_cf = torch.cat([t for t in (u_desc, x_ind_p, sens_soc_cf_p) 
+                              if t is not None], dim=1)
     x_desc_cf_logits = {feature['name']: 
                         self.decoder_desc[feature['name']](input_desc_cf)\
                    for feature in self.desc_meta}
     x_desc_cf = self.hard_reconstruct_features(x_desc_cf_logits, self.desc_meta)
 
-    input_target_soc_cf = torch.cat((u_desc, u_corr, x_ind_p, 
-                                 sens_bio_p, sens_soc_cf_p), dim=1)
+    input_target_soc_cf = torch.cat([t for t in (u_desc, u_corr, x_ind_p, 
+                                 sens_bio_p, sens_soc_cf_p) 
+                              if t is not None], dim=1)
     y_soc_cf_logits = self.decoder_target(input_target_soc_cf)
 
     # Biological Counterfactual
     sens_bio_cf_p = self._process_features(1 - sens_bio, self.sens_meta)
-    input_corr_cf = torch.cat((u_corr, x_ind_p, sens_bio_cf_p), dim=1)
+    input_corr_cf = torch.cat([t for t in (u_corr, x_ind_p, sens_bio_cf_p) 
+                              if t is not None], dim=1)
     x_corr_cf_logits = {feature['name']: 
                         self.decoder_corr[feature['name']](input_corr_cf)\
                    for feature in self.corr_meta}
     x_corr_cf = self.hard_reconstruct_features(x_corr_cf_logits, self.corr_meta)
 
-    input_target_bio_cf = torch.cat((u_desc, u_corr, x_ind_p, 
-                                 sens_bio_cf_p, sens_soc_p), dim=1)
+    input_target_bio_cf = torch.cat([t for t in (u_desc, u_corr, x_ind_p, 
+                                 sens_bio_cf_p, sens_soc_p) 
+                              if t is not None], dim=1)
     y_bio_cf_logits = self.decoder_target(input_target_bio_cf)
 
     # Full Counterfactual?
-    input_target_full_cf = torch.cat((u_desc, u_corr, x_ind_p,
-                                      sens_bio_cf_p, sens_soc_cf_p), dim=1)
+    input_target_full_cf = torch.cat([t for t in (u_desc, u_corr, x_ind_p,
+                                      sens_bio_cf_p, sens_soc_cf_p) 
+                              if t is not None], dim=1)
     y_full_cf_logits = self.decoder_target(input_target_full_cf)
 
     return x_desc_pred_logits, x_corr_pred_logits, y_pred_logits, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, y_full_cf_logits
@@ -420,8 +431,9 @@ class CEVAEHE(nn.Module):
         param.requires_grad = False
 
     # Forward target decoder pass on permuted data
-    input_permuted = torch.cat((u_desc, u_corr_permuted, x_ind_p, 
-                            s_bio_p, s_soc_p), dim=1)
+    input_permuted = torch.cat([t for t in (u_desc, u_corr_permuted, x_ind_p, 
+                            s_bio_p, s_soc_p) 
+                              if t is not None], dim=1)
     y_permuted_logits = self.decoder_target(input_permuted)
 
     for param in self.decoder_target.parameters():
