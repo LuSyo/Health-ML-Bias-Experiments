@@ -41,6 +41,39 @@ def stratified_perf(y_true, y_pred, y_prob, sens):
         "brier_score_1": perf_metrics_1['brier_score']
     }
 
+def avg_perf_per_patient(y_true, y_pred_prob, sens, patient_index):
+    test_results = pd.DataFrame({
+        'patient_index': patient_index,
+        'y_true': y_true,
+        'y_prob': y_pred_prob,
+        'sens': sens
+      })
+
+    avg_results = test_results.groupby('patient_index').mean()
+
+    y_pred_avg = (avg_results['y_prob'] >= 0.5).astype(int)
+
+    global_perf = calculate_performance_metrics(
+        avg_results['y_true'],
+        y_pred_avg,
+        avg_results['y_prob']
+    )
+
+    strat_perf = stratified_perf(
+        avg_results['y_true'],
+        y_pred_avg,
+        avg_results['y_prob'],
+        avg_results['sens']
+    )
+
+    grouped_roc_curve = get_grouped_roc_curve(
+        avg_results['y_true'],
+        avg_results['y_prob'],
+        avg_results['sens'],
+    )
+
+    return global_perf, strat_perf, grouped_roc_curve
+
 def get_cca(set_a, set_b):
     cca = CCA(n_components=1)
     # projections of set_a and set_b projected in the 1D space 
@@ -50,12 +83,23 @@ def get_cca(set_a, set_b):
     # Return Pearson correlation coefficient between the projections across samples
     return np.corrcoef(set_a_c.T, set_b_c.T)[0, 1]
 
-def get_interp_tpr(y_true, y_prob, mean_fpr):
+def get_interp_tpr(y_true, y_prob):
     """
     Calculates TPR interpolated to a common FPR grid.
     """
+    mean_fpr = np.linspace(0, 1, 100)
+
     fpr, tpr, _ = roc_curve(y_true, y_prob)
     
     interp_tpr = np.interp(mean_fpr, fpr, tpr)
     interp_tpr[0] = 0.0 
     return interp_tpr
+
+def get_grouped_roc_curve(y_true, y_prob, sens):
+    grouped_roc_curve = {}
+    for group in np.unique(sens):
+        mask = (sens == group)
+        grouped_roc_curve[group] = get_interp_tpr(y_true[mask], y_prob[mask])
+    
+    return grouped_roc_curve
+    
