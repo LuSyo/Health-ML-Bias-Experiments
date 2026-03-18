@@ -1,8 +1,16 @@
+import random
+
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
 from sklearn.metrics import mean_squared_error
+import torch
+
+from cevaehe.model import CEVAEHE
+from cevaehe.data_loader import make_bucketed_loader
+from cevaehe.train import lite_train_ceveahe
 
 def run_sens_classifier(features, target_sens, seed=4):
   '''
@@ -48,7 +56,7 @@ def counterfactual_sensitivity(v_pred, v_pred_cf, v_meta):
       Calculates Counterfactual Sensitivity scores for the given feature bucket, matching each feature type to the correct scoring
     '''
     sample_size = v_pred.shape[0]
-    sensitivity_results = []
+    sensitivity_results = {}
     for i, feature in enumerate(v_meta):
       f_name = feature['name']
       f_type = feature['type']
@@ -67,9 +75,10 @@ def counterfactual_sensitivity(v_pred, v_pred_cf, v_meta):
         score = np.mean(np.abs(v - v_cf))
         score_type = "MAD"
 
-      sensitivity_results.append({'name': f_name,
+      sensitivity_results[f_name] = {
                                   'score': score,
-                                  'score_type':score_type})
+                                  'score_type':score_type
+                                  }
 
     return sensitivity_results
 
@@ -105,15 +114,15 @@ def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
 
   return te_error, obs_disparity, est_ate, internal_te_error
 
-def evaluate_latent_utility_fidelity(u_desc, x_desc, desc_meta, seed=4):
+def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
   """
   Trains linear probes to predict each original feature in X_desc from U_desc.
   Quantifies how much clinical information survived the latent bottleneck.
   
   Inputs:
-    u_desc: numpy array of the extracted latent variables
-    x_desc: numpy array of the original descendant features
-    desc_meta: list of dictionaries describing the features (from config/mapping)
+    u: numpy array of the extracted latent variables
+    x: numpy array of the original descendant features
+    x_meta: list of dictionaries describing the features (from config/mapping)
     
   Outputs:
     fidelity_scores: Dictionary of scores for each feature
@@ -121,29 +130,176 @@ def evaluate_latent_utility_fidelity(u_desc, x_desc, desc_meta, seed=4):
   fidelity_scores = {}
   
   # Iterate through each feature in the X_desc bucket
-  for i, feature_meta in enumerate(desc_meta):
+  for i, feature_meta in enumerate(x_meta):      
       feature_name = feature_meta['name']
       feature_type = feature_meta['type']
-      target_y = x_desc[:, i]
+      target_y = x[:, i]
       
       if feature_type in ['categorical', 'binary']:
-          # Classification Probe
-          probe = LogisticRegression(max_iter=1000, random_state=seed)
-          cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
-          
-          # Use ROC AUC for binary, or Accuracy for multi-class
-          scoring = 'roc_auc' if feature_type == 'binary' else 'accuracy'
-          
-          scores = cross_val_score(probe, u_desc, target_y, cv=cv, scoring=scoring)
-          fidelity_scores[f"{feature_name}_{scoring}"] = scores.mean()
+        # Classification Probe
+        probe = LogisticRegression(max_iter=1000, random_state=seed)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+
+        if feature_type == 'binary':
+          scoring = 'roc_auc'
+          scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
+          avg_score = scores.mean()
+          norm_score = (avg_score - 0.5) / 0.5
+        else:
+          counts = np.bincount(target_y.astype(int))
+          base_acc = np.max(counts) / len(target_y)
+        
+          scoring = 'accuracy'
+          scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
+          norm_score = (scores.mean() - base_acc) / (1.0 - base_acc) if base_acc < 1.0 else 0.0
           
       elif feature_type == 'continuous':
-          # Regression Probe
-          probe = Ridge(random_state=seed)
-          cv = KFold(n_splits=5, shuffle=True, random_state=seed)
+        # Regression Probe
+        probe = Ridge(random_state=seed)
+        cv = KFold(n_splits=5, shuffle=True, random_state=seed)
+        
+        # Use R-squared to measure variance explained
+        scoring = 'r2'
+        scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
+        norm_score = scores.mean()
           
-          # Use R-squared to measure variance explained
-          scores = cross_val_score(probe, u_desc, target_y, cv=cv, scoring='r2')
-          fidelity_scores[f"{feature_name}_r2"] = scores.mean()
-          
+      fidelity_scores[feature_name] = {
+         'score': scores.mean(),
+         'score_type': scoring,
+         'norm_score': max(0, norm_score)
+      }
+
   return fidelity_scores
+
+def run_sbs_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger, args):
+  """
+  Stochastic bucket sensitivity (SBS) audit
+  Iteratively re-partition features into Xdesc and Xcorr to test causal fidelity
+  """
+
+  results = []
+
+  logger.info("--- Start Stochastic bucket sensitivity (SBS) audit ---")
+
+  for i in range(iterations):
+    logger.info(f"> Iteration {i+1}/{iterations}")
+    
+    # 1. Randomly partition features
+    # We ensure at least one feature remains in each bucket
+    features = feature_mapping['X']
+    shuffled = random.sample(features, len(features))
+    split_point = random.randint(1, len(shuffled) - 1)
+    
+    current_desc = shuffled[:split_point]
+    current_corr = shuffled[split_point:]
+
+    # Construct the current mapping
+    current_mapping = {
+        'desc': current_desc,
+        'corr': current_corr,
+        'ind': feature_mapping['ind'],
+        'sens': feature_mapping['sens'],
+        'target': feature_mapping['target']
+    }
+
+    # Data loaders
+    train_loader, val_loader, _ \
+      = make_bucketed_loader(dataset, current_mapping, val_size=0.3,
+                              test_size=0, batch_size=args.batch_size, seed=args.seed)
+    
+    # 2. Initialize Model with current SCM
+    model = CEVAEHE(
+        ind_meta=feature_mapping['ind'], 
+        desc_meta=current_desc, 
+        corr_meta=current_corr, 
+        sens_meta=current_mapping['sens'], 
+        args=args
+    ).to(args.device)
+
+    logger.info(f'U_corr dimension: {model.uc_dim}')
+    logger.info(f'U_desc dimension: {model.ud_dim}')
+
+    # 3. Lite train model
+    lite_train_ceveahe(
+        model,
+        train_loader,
+        lite_epochs,
+        logger,
+        args
+    )
+
+    # 4. Measure metrics for this causal model
+    model.eval()
+    all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf = \
+    [], [], [], [], [], []
+
+    with torch.no_grad():
+      for batch in val_loader:
+        x_ind, x_desc, x_corr, x_sens, y = [t.to(args.device) for t in batch[:5]]
+
+        s_bio = x_sens.clone()
+        s_soc = x_sens.clone()
+
+        # Abduct latent variables
+        mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y)
+
+        # Factual and Full Counterfactual prediction
+        # from mean Ucorr and Udesc
+        x_desc_pred_logits, _, _, x_desc_cf, _, _, _, _ = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+
+        x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
+
+        all_u_corr.append(mu_corr.cpu().numpy())
+        all_u_desc.append(mu_desc.cpu().numpy())
+        all_x_desc.append(x_desc.cpu().numpy())
+        all_x_corr.append(x_corr.cpu().numpy())
+        all_x_desc_pred.append(x_desc_pred.cpu().numpy())
+        all_x_desc_cf.append(x_desc_cf.cpu().numpy())
+      
+    u_corr_np = np.stack(list(np.concatenate(all_u_corr)))
+    u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
+    x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
+    x_corr_np = np.stack(list(np.concatenate(all_x_corr)))
+    x_desc_pred_np = np.stack(list(np.concatenate(all_x_desc_pred)))
+    x_desc_cf_np = np.stack(list(np.concatenate(all_x_desc_cf)))
+
+    # Latent Utility Fidelity
+    f_desc = evaluate_latent_utility_fidelity(
+        u_desc_np, x_desc_np, model.desc_meta, args.seed
+    )
+
+    f_corr = evaluate_latent_utility_fidelity(
+        u_corr_np, x_corr_np, model.corr_meta, args.seed
+    )
+
+    # Counterfactual sensitivity
+    cf_sensitivity = counterfactual_sensitivity(
+        x_desc_pred_np, x_desc_cf_np, model.desc_meta
+    )
+
+    for feature in features:
+      f_name = feature['name']
+      
+      f_desc_score = f_desc[f_name]['score'] if f_desc.get(f_name, False) else np.nan
+      f_corr_score = f_corr[f_name]['score'] if f_corr.get(f_name, False) else np.nan
+      norm_f_desc_score = f_desc[f_name]['norm_score'] if f_desc.get(f_name, False) else np.nan
+      norm_f_corr_score = f_corr[f_name]['norm_score'] if f_corr.get(f_name, False) else np.nan
+      sensitivity = cf_sensitivity[f_name]['score'] if cf_sensitivity.get(f_name, False) else np.nan
+
+
+      results.append({
+        "iteration": i,
+        "feature": f_name,
+        "bucket": "x_desc" if feature in current_desc else "x_corr",
+        "cf_sensitivity": sensitivity,
+        "sensitivity_scoring": cf_sensitivity[f_name]['score_type'] if cf_sensitivity.get(f_name, False) else "",
+        "f_desc": f_desc_score,
+        "f_corr": f_corr_score,
+        "norm_f_desc": norm_f_desc_score,
+        "norm_f_corr": norm_f_corr_score,
+        "fidelity_scoring": f_desc[f_name]['score_type'] if f_desc.get(f_name, False) else f_corr[f_name]['score_type'],
+        "desc_size": len(current_desc),
+        "u_desc_dim": model.ud_dim
+      })
+          
+  return pd.DataFrame(results)

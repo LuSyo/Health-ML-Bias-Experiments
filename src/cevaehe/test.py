@@ -120,10 +120,10 @@ def test_ceveahe(model, test_loader, logger, args):
 
   logger.info("--- Latent Utility Fidelity ---")
   for feature, score in fidelity_scores.items():
-    logger.info(f"{feature}: {score:.4f}")
+    logger.info(f"{feature} ({score['score_type']}): {score['score']:.4f}")
   logger.info("--- Latent Fidelity Delta ---")
   for feature, score in cross_fidelity_scores.items():
-    logger.info(f"{feature}: {(fidelity_scores[feature] - score):.4f}")
+    logger.info(f"{feature}: {(fidelity_scores[feature] - score['score']):.4f}")
   logger.info("---")
   
   ## Calculate the Total Effect Error
@@ -142,8 +142,8 @@ def test_ceveahe(model, test_loader, logger, args):
   )
 
   logger.info("--- Xdesc Counterfactual Sensitivity ---")
-  for feature in sensitivity_results:
-     logger.info(f'{feature['name']} score ({feature['score_type']}): {feature['score']:.4f}')
+  for feature, score in sensitivity_results.items():
+     logger.info(f'{feature} score ({score['score_type']}): {score['score']:.4f}')
 
   ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')

@@ -477,8 +477,7 @@ class CEVAEHE(nn.Module):
 
     return fair_L_equal + fair_L_opp
   
-  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
-                     x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
+  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y,
                      distill_weight=0, kl_weight=1.0, tc_weight=1.0, 
                      u_ind_weight=1):
     '''

@@ -20,7 +20,7 @@ class Config:
   BATCH_SIZE = 32
   N_EPOCHS = 5
   VAE_LR = 0.001
-  DISC_LR = 0.0005
+  DISC_LR = 0.0001
   DISTILL_WARM_UP = 0
   KL_WARM_UP = 0
   TC_WARM_UP = 0
@@ -29,9 +29,9 @@ class Config:
   # CEVAE-HE loss scaling factors
   CORR_RECON_ALPHA = 1
   DESC_RECON_ALPHA = 1
-  PRED_ALPHA = 1
+  PRED_ALPHA = 2
   FAIR_BETA = 1
-  TC_BETA = 1
+  TC_BETA = 5
   U_IND_BETA = 1
 
   # Classifier training params

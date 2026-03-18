@@ -70,7 +70,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     [], [], [], [], [], [], [], []
 
     for i, batch in enumerate(train_loader):
-      x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2 =\
+      x_ind, x_desc, x_corr, x_sens, y, *_ =\
       [tensor.to(device) for tensor in batch]
 
       # Reset optimiser gradients
@@ -83,7 +83,6 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
       total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, redund_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
-                               x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight, 
                                args.u_ind_b)
 
@@ -183,10 +182,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     val_recon_losses = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
-        x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2=\
+        x_ind, x_desc, x_corr, x_sens, y, *_=\
           [tensor.to(device) for tensor in batch]
-        _, desc_recon_L, corr_recon_L, y_recon_L, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y,
-                                              x_ind_2, x_desc_2, x_corr_2, x_sens_2, y_2)
+        _, desc_recon_L, corr_recon_L, y_recon_L, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y)
         val_recon_losses.append((desc_recon_L + corr_recon_L + y_recon_L).item())
 
     avg_val_recon_loss = np.mean(val_recon_losses)
@@ -212,3 +210,54 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   logger.info(f'model trained for {best_state['epoch'] + 1} epochs')
   
   return training_log, last_train_results
+
+def lite_train_ceveahe(model, train_loader, lite_epochs, logger, args):
+  device = args.device
+  model.to(device)
+  model = model.train()
+
+  discrim_params = [param for name, param in model.named_parameters() if 'discriminator' in name]
+  main_params = [param for name, param in model.named_parameters() if 'discriminator' not in name]
+  discrim_optimiser = optim.Adam(discrim_params, lr=args.disc_lr, betas=(0.9, 0.999))
+  main_optimiser = optim.Adam(main_params, lr=args.vae_lr, betas=(0.9, 0.999))
+
+  for epoch in range(lite_epochs):
+    logger.info(f'Epoch {epoch}')
+    for i, batch in enumerate(train_loader):
+      x_ind, x_desc, x_corr, x_sens, y, *_ = [tensor.to(device) for tensor in batch]
+
+      # Reset optimiser gradients
+      discrim_optimiser.zero_grad()
+      main_optimiser.zero_grad()
+
+      # Forward pass and loss calculation
+      distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
+      kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
+      tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
+      total_vae_loss, _, _, _, _, _, _, _, _, _, u_desc, _, _, _ \
+        = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
+                               distill_weight, kl_weight, tc_weight, 
+                               args.u_ind_b)
+      
+      # VAE backpropagation
+      total_vae_loss.backward()
+
+      # DISC LOSS
+      # clear discriminator gradients
+      discrim_optimiser.zero_grad()
+
+      if i % args.disc_step == 0:
+        disc_L = model.disc_loss(u_desc, x_sens)
+
+        # Discriminator backpropagation
+        disc_L.backward(retain_graph=True)
+
+        # Step both optimisers
+        discrim_optimiser.step()
+      else:
+        with torch.no_grad():
+          disc_L = model.disc_loss(u_desc, x_sens)
+
+      main_optimiser.step()
+
+    

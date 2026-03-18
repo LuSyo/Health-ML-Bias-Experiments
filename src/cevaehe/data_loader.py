@@ -4,6 +4,9 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 
 def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32, seed=4):
+  if index is None:
+    return None
+  
   g = torch.Generator()
   g.manual_seed(seed)
   
@@ -88,14 +91,19 @@ def make_bucketed_loader(dataset, map, val_size=0.2, test_size=0.1, batch_size=3
 
   ## TRAIN-VAL-TRAIN SPLIT
   # Stratified by target class
-  N = X_ind.shape[0]
+  N = X_sens.shape[0]
   indices = np.arange(N)
-  train_val_idx, test_index = train_test_split(
-      indices,
-      test_size=test_size,
-      random_state=seed,
-      stratify=Y
-  )
+  if test_size == 0:
+    train_val_idx = indices
+    test_index = None
+  else:
+    train_val_idx, test_index = train_test_split(
+        indices,
+        test_size=test_size,
+        random_state=seed,
+        stratify=Y
+    )
+
   train_index, val_index = train_test_split(
       train_val_idx,
       test_size=val_size/(1 - test_size),
