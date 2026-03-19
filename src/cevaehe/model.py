@@ -522,62 +522,57 @@ class CEVAEHE(nn.Module):
     u_desc_inf = self.reparameterize(mu_desc_inf, logvar_desc_inf)
 
     # Decode from abduction
-    x_desc_pred_logits, x_corr_pred_logits, y_pred_logits, \
-      x_desc_cf, x_corr_cf, y_soc_cf_logits, _, y_full_cf_logits = self.decode(
+    x_desc_pred_logits, x_corr_pred_logits, y_pred_logits, _, _, y_soc_cf_logits, *_ = self.decode(
         u_desc, u_corr, x_ind, s_bio, s_soc)
     
     # Decode from inference
     _, _, y_pred_inf_logits, *_ = self.decode(
         u_desc_inf, u_corr_inf, x_ind, s_bio, s_soc)
+    
+    y_pred_prob = torch.sigmoid(y_pred_inf_logits)
 
-    # Reconstruction loss
+    # ---- Reconstruction loss
     desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_pred_logits, x_desc, self.desc_meta)
     corr_recon_L = self.args.corr_a * self.reconstruction_loss(x_corr_pred_logits, x_corr, self.corr_meta)
     y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_logits, y)
 
     recon_L = desc_recon_L + corr_recon_L + y_recon_L
 
-    # KL loss
+    # ---- KL loss
     kl_L = self.kl_loss(mu_corr, logvar_corr) + 1.5*self.kl_loss(mu_desc, logvar_desc)
-    
 
-    # TC loss
+    # ---- TC loss
     tc_L = self.tc_loss(u_desc, s_soc)
 
-    # IECO fairness loss for a flipped Sociological sensitive attribute
+    # ---- Latent Counterfactual Invariance loss 
+    # for a flipped Sociological sensitive attribute
     # We keep the Biological sensitive attribute constant
-
-    # Counterfactual actual outcome (adbucted)
-    y_soc_cf = torch.sigmoid(y_soc_cf_logits)
-
-    # Second pass to infer the counterfactual prediction
     s_soc_flipped = 1 - s_soc
+    # y_soc_cf_pred = torch.sigmoid(y_soc_cf_logits).detach()
 
-    mu_corr_cf, logvar_corr_cf, mu_desc_cf, logvar_desc_cf = self.encode(
-        x_desc_cf, x_corr, x_ind, s_bio, s_soc_flipped, y=None)
+    # _, _, mu_desc_cf, logvar_desc_cf = self.encode(
+    #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y_soc_cf_pred) # Cycle invariance
+    # _, _, mu_desc_cf, logvar_desc_cf = self.encode(
+    #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y) # Adbuction invariance
+    _, _, mu_desc_cf_inf, logvar_desc_cf_inf = self.encode(
+        x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y=None) # Inference invariance
     
-    u_corr_cf = self.reparameterize(mu_corr_cf, logvar_corr_cf)
-    u_desc_cf = self.reparameterize(mu_desc_cf, logvar_desc_cf)
+    # cf_invar_L = self.kl_div(mu_desc_cf, logvar_desc_cf, mu_desc, logvar_desc)\
+    #             + self.kl_div(mu_desc, logvar_desc, mu_desc_cf, logvar_desc_cf)
+    cf_invar_L = self.kl_div(mu_desc_cf_inf, logvar_desc_cf_inf, mu_desc, logvar_desc)\
+                + self.kl_div(mu_desc_inf, logvar_desc_inf, mu_desc_cf_inf, logvar_desc_cf_inf)
 
-    _, _, y_pred_cf_logits, *_ = self.decode(
-        u_desc_cf, u_corr_cf, x_ind, s_bio, s_soc_flipped)
-    y_pred_cf_prob = torch.sigmoid(y_pred_cf_logits)
-
-    y_pred_prob = torch.sigmoid(y_pred_inf_logits)
-    
-    fair_L = self.fair_loss(y, y_soc_cf, y_pred_prob, y_pred_cf_prob)
-
-    # Latent Redundancy Loss
+    # ---- Latent Redundancy Loss
     u_redun_L = self.u_redundancy_loss(u_desc, u_corr, x_ind, s_soc, s_bio, y_pred_prob)
 
-    # Total VAE obective
+    # ---- Total VAE obective
     # Fair Disentangled Negative ELBO = -M_ELBO + beta_tc * L_TC + beta_f * L_f
-    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*fair_L\
+    total_vae_loss = recon_L + distill_weight*distill_L + kl_weight*kl_L + tc_weight*tc_L + self.args.fair_b*cf_invar_L\
         - u_ind_weight*u_redun_L
 
 
     return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \
-      kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*fair_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
+      kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*cf_invar_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
         y_pred_prob.detach(), \
            mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
 
