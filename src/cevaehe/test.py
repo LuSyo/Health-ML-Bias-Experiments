@@ -104,27 +104,25 @@ def test_ceveahe(model, test_loader, logger, args):
     np.stack(test_results['u_desc_cf']))
 
   # 3. Verify utility of Udesc
-  fidelity_scores = evaluate_latent_utility_fidelity(
+  desc_fidelity_scores = evaluate_latent_utility_fidelity(
     np.stack(test_results['u_desc']),
     np.stack(test_results['x_desc']),
     model.desc_meta,
     seed=args.seed
   )
 
-  cross_fidelity_scores = evaluate_latent_utility_fidelity(
+  corr_fidelity_scores = evaluate_latent_utility_fidelity(
     np.stack(test_results['u_corr']),
-    np.stack(test_results['x_desc']),
-    model.desc_meta,
+    np.stack(test_results['x_corr']),
+    model.corr_meta,
     seed=args.seed
   )
 
   logger.info("--- Latent Utility Fidelity ---")
-  for feature, score in fidelity_scores.items():
-    logger.info(f"{feature} ({score['score_type']}): {score['score']:.4f}")
-  logger.info("--- Latent Fidelity Delta ---")
-  for feature, score in cross_fidelity_scores.items():
-    logger.info(f"{feature}: {(fidelity_scores[feature] - score['score']):.4f}")
-  logger.info("---")
+  for feature, score in desc_fidelity_scores.items():
+    logger.info(f"Desc: {feature} ({score['score_type']}): {score['score']:.4f}")
+  for feature, score in corr_fidelity_scores.items():
+    logger.info(f"Corr: {feature} ({score['score_type']}): {score['score']:.4f}")
   
   ## Calculate the Total Effect Error
   te_error, obs_disparity, est_ate, internal_te_error = calculate_te_error(
