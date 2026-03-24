@@ -92,6 +92,18 @@ def training_accuracy_curve(training_metrics, show=False):
 
   return fig
 
+def _prepare_for_2d_plot(latent_vectors):
+    """Safely maps latent vectors to 2D coordinates, handling 0D and 1D edge cases."""
+    if latent_vectors.shape[1] == 0:
+        return np.zeros((latent_vectors.shape[0], 2))
+    elif latent_vectors.shape[1] == 1:
+        jitter = np.random.normal(0, 0.1, size=(latent_vectors.shape[0], 1))
+        return np.hstack((latent_vectors, jitter))
+    else:
+        # Standard behaviour: 2D+ Latent Space
+        tsne = TSNE(n_components=2, perplexity=30, random_state=4)
+        return tsne.fit_transform(latent_vectors)
+
 def u_clustering_analysis(test_results, mode="test", show=False):
   u_desc = np.stack(test_results['u_desc'].values)
   u_corr = np.stack(test_results['u_corr'].values)
@@ -99,15 +111,14 @@ def u_clustering_analysis(test_results, mode="test", show=False):
   y_true = test_results['y_true'].values
 
   # Dimension reduction with T-distributed Stochastic Neighbor Embedding
-  tsne = TSNE(n_components=2, perplexity=30, random_state=4)
-  u_desc_2d = tsne.fit_transform(u_desc)
-  u_corr_2d = tsne.fit_transform(u_corr)
+  u_desc_2d = _prepare_for_2d_plot(u_desc)
+  u_corr_2d = _prepare_for_2d_plot(u_corr)
 
   if mode=="training":
     inf_u_desc = np.stack(test_results['inf_u_desc'].values)
     inf_u_corr = np.stack(test_results['inf_u_corr'].values)
-    u_inf_desc_2d = tsne.fit_transform(inf_u_desc)
-    u_inf_corr_2d = tsne.fit_transform(inf_u_corr)
+    u_inf_desc_2d = _prepare_for_2d_plot(inf_u_desc)
+    u_inf_corr_2d = _prepare_for_2d_plot(inf_u_corr)
     fig, axes = plt.subplots(2, 4, figsize=(20, 10))
     
     # Row 1, Col 3: Inferred U_desc by sensitive attribute

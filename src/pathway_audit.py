@@ -6,7 +6,7 @@ import gc
 from config import Config
 from cevaehe.model import CEVAEHE
 from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
-from cevaehe.causal_validation import run_sbs_bootstrap
+from cevaehe.causal_validation import run_sps_bootstrap
 
 def main():
   args = parse_args()
@@ -19,7 +19,7 @@ def main():
   # Initialise logger
   logger = setup_logger(Config.LOG_DIR, args.exp_name)
 
-  logger.info(f'BUCKET SENSITIVY AUDIT START: {args.exp_name}')
+  logger.info(f'PATHWAY SENSITIVY AUDIT START: {args.exp_name}')
 
   try:
     # Load the dataset
@@ -28,16 +28,19 @@ def main():
     # Load the feature mapping
     feature_mapping = load_feature_mapping(args.mapping)
 
-    audit_df = run_sbs_bootstrap(
+    # Establish baseline
+
+    baseline_df, audit_df = run_sps_bootstrap(
       dataset,
       feature_mapping,
-      iterations=15,
-      lite_epochs=100,
+      iterations=5,
+      lite_epochs=10,
       logger=logger,
       args=args,
     )
 
-    audit_df.to_csv(f'{results_path}/bsa_audit.csv', index=False)
+    baseline_df.to_csv(f'{results_path}/sps_audit_baseline.csv', index=False)
+    audit_df.to_csv(f'{results_path}/sps_audit.csv', index=False)
 
 
     gc.collect()

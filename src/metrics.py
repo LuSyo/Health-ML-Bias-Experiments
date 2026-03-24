@@ -75,6 +75,14 @@ def avg_perf_per_patient(y_true, y_pred_prob, sens, patient_index):
     return global_perf, strat_perf, grouped_roc_curve
 
 def get_cca(set_a, set_b):
+    if set_a is None or set_b is None or set_a.shape[1] == 0 or set_b.shape[1] == 0:
+        return np.nan
+    
+    if len(set_a.shape) == 1:
+        set_a = set_a.reshape(-1, 1)
+    if len(set_b.shape) == 1:
+        set_b = set_b.reshape(-1, 1)
+    
     cca = CCA(n_components=1)
     # projections of set_a and set_b projected in the 1D space 
     # where they are maximally correlated

@@ -38,8 +38,8 @@ class CEVAEHE(nn.Module):
 
     self.args = args
     self.device = args.device
-    self.uc_dim = max(2, math.ceil(self.corr_dim / 3))
-    self.ud_dim = max(2, math.ceil(self.desc_dim / 3))
+    self.uc_dim = math.ceil(self.corr_dim / 3)
+    self.ud_dim = math.ceil(self.desc_dim / 3)
     self.u_dim = self.uc_dim + self.ud_dim
     self.h_dim = args.h_dim
     self.batch_size = args.batch_size
@@ -140,8 +140,11 @@ class CEVAEHE(nn.Module):
     '''
     main_act_fn = "tanh" if isinstance(self.act_fn, nn.Tanh) else "relu"
 
-    for name, module in self.named_modules():
+    for name, module in self.named_modules():      
       if isinstance(module, nn.Linear):
+        if module.weight.numel() == 0:
+          continue
+
         if "discriminator" in name:
           # Kaiming normal for the LeakyReLU in the Discriminator
           nn.init.kaiming_normal_(module.weight, a=0.2, nonlinearity="leaky_relu")
@@ -152,7 +155,7 @@ class CEVAEHE(nn.Module):
           else:
             nn.init.kaiming_normal_(module.weight, a=0.01, nonlinearity="leaky_relu")
 
-        if module.bias is not None:
+        if module.bias is not None and module.bias.numel() > 0:
           nn.init.constant_(module.bias, 0)
 
   def discriminate(self, v):
@@ -336,6 +339,9 @@ class CEVAEHE(nn.Module):
       Calculates the total reconstruction loss for the given feature bucket,\
        matching each feature type to the correct loss function
     '''
+    if len(v_meta) == 0:
+      return torch.tensor(0.0, device=self.device)
+    
     sample_size = v.size(0)
     total_recon_L = 0
     for i, feature in enumerate(v_meta):
@@ -355,6 +361,9 @@ class CEVAEHE(nn.Module):
     '''
       Reconstructs the feature bucket from its logits
     '''
+    if len(v_meta) == 0:
+      return None
+    
     reconstructed = []
     for i, feature in enumerate(v_meta):
       logits = v_pred[feature['name']]

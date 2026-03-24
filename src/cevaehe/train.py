@@ -258,7 +258,7 @@ def lite_train_ceveahe(model, train_loader, lite_epochs, logger, args):
         discrim_optimiser.step()
       else:
         with torch.no_grad():
-          disc_L = model.disc_loss(u_desc, x_sens)
+          disc_L = model.disc_loss(u_desc, x_sens, u_desc_2, x_sens_2)
 
       main_optimiser.step()
 
