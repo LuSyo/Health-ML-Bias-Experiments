@@ -31,8 +31,8 @@ def main():
     audit_df = run_sbs_bootstrap(
       dataset,
       feature_mapping,
-      iterations=50,
-      lite_epochs=25,
+      iterations=15,
+      lite_epochs=100,
       logger=logger,
       args=args,
     )

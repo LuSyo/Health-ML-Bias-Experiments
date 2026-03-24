@@ -74,6 +74,7 @@ def all_VAE_losses_curve(training_metrics, show=False):
   axes[0].tick_params(axis='y', which='major', color='#666666')
   axes[0].tick_params(axis='y', which='minor', color='#999999')
   axes[0].grid(visible=True, which='both')
+  axes[1].set_ylim(top=15)
   plt.xlabel('Epoch')
   plt.ylabel('Loss')
 
