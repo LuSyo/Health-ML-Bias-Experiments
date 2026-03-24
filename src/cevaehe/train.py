@@ -70,7 +70,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     [], [], [], [], [], [], [], []
 
     for i, batch in enumerate(train_loader):
-      x_ind, x_desc, x_corr, x_sens, y, *_ =\
+      x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_sens_2, y_2 =\
       [tensor.to(device) for tensor in batch]
 
       # Reset optimiser gradients
@@ -81,8 +81,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, redund_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr \
-        = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
+      total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, kl_L, tc_L, fair_L, distill_L, redund_L, y_pred_prob, u_desc, u_corr, inf_u_desc, inf_u_corr, u_desc_2 \
+        = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y,
+                               x_ind_2, x_desc_2, x_sens_2, y_2, 
                                distill_weight, kl_weight, tc_weight, 
                                args.u_ind_b)
 
@@ -95,7 +96,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       discrim_optimiser.zero_grad()
 
       if i % args.disc_step == 0:
-        disc_L = model.disc_loss(u_desc, x_sens)
+        disc_L = model.disc_loss(u_desc, x_sens, u_desc_2, x_sens_2)
 
         # Discriminator backpropagation
         disc_L.backward(retain_graph=True)
@@ -110,7 +111,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         discrim_optimiser.step()
       else:
         with torch.no_grad():
-          disc_L = model.disc_loss(u_desc, x_sens)
+          disc_L = model.disc_loss(u_desc, x_sens, u_desc_2, x_sens_2)
 
       main_optimiser.step()
 
@@ -182,9 +183,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     val_recon_losses = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
-        x_ind, x_desc, x_corr, x_sens, y, *_=\
+        x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_sens_2, y_2=\
           [tensor.to(device) for tensor in batch]
-        _, desc_recon_L, corr_recon_L, y_recon_L, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y)
+        _, desc_recon_L, corr_recon_L, y_recon_L, *_ = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_sens_2, y_2)
         val_recon_losses.append((desc_recon_L + corr_recon_L + y_recon_L).item())
 
     avg_val_recon_loss = np.mean(val_recon_losses)
@@ -224,7 +225,7 @@ def lite_train_ceveahe(model, train_loader, lite_epochs, logger, args):
   for epoch in range(lite_epochs):
     logger.info(f'Epoch {epoch}')
     for i, batch in enumerate(train_loader):
-      x_ind, x_desc, x_corr, x_sens, y, *_ = [tensor.to(device) for tensor in batch]
+      x_ind, x_desc, x_corr, x_sens, y, x_ind_2, x_desc_2, x_sens_2, y_2 = [tensor.to(device) for tensor in batch]
 
       # Reset optimiser gradients
       discrim_optimiser.zero_grad()
@@ -234,8 +235,9 @@ def lite_train_ceveahe(model, train_loader, lite_epochs, logger, args):
       distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
       kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
       tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-      total_vae_loss, _, _, _, _, _, _, _, _, _, u_desc, _, _, _ \
+      total_vae_loss, _, _, _, _, _, _, _, _, _, u_desc, _, _, _, u_desc_2 \
         = model.calculate_loss(x_ind, x_desc, x_corr, x_sens, y, 
+                               x_ind_2, x_desc_2, x_sens_2, y_2,
                                distill_weight, kl_weight, tc_weight, 
                                args.u_ind_b)
       
@@ -247,7 +249,7 @@ def lite_train_ceveahe(model, train_loader, lite_epochs, logger, args):
       discrim_optimiser.zero_grad()
 
       if i % args.disc_step == 0:
-        disc_L = model.disc_loss(u_desc, x_sens)
+        disc_L = model.disc_loss(u_desc, x_sens, u_desc_2, x_sens_2)
 
         # Discriminator backpropagation
         disc_L.backward(retain_graph=True)

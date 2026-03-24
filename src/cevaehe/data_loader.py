@@ -17,12 +17,11 @@ def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32, seed=4):
   Y_fact = Y[index]
 
   # # Permuted set for the discriminator
-  permuted_indices = np.random.permutation(X_ind_fact.shape[0])
-  X_ind_perm = X_ind_fact[permuted_indices]
-  X_desc_perm = X_desc_fact[permuted_indices]
-  X_corr_perm = X_corr_fact[permuted_indices]
-  X_sens_perm = X_sens_fact[permuted_indices]
-  Y_perm = Y_fact[permuted_indices]
+  permuted_indices = np.random.permutation(index)
+  X_ind_perm = X_ind[permuted_indices]
+  X_desc_perm = X_desc[permuted_indices]
+  X_sens_perm = X_sens[permuted_indices]
+  Y_perm = Y[permuted_indices]
 
   X_ind_tensor = torch.tensor(X_ind_fact, dtype=torch.float32)
   X_desc_tensor = torch.tensor(X_desc_fact, dtype=torch.float32)
@@ -31,11 +30,10 @@ def make_loader(X_ind, X_desc, X_corr, X_sens, Y, index, batch_size=32, seed=4):
   Y_tensor = torch.tensor(Y_fact, dtype=torch.float32)
   X_ind_tensor_2 = torch.tensor(X_ind_perm, dtype=torch.float32)
   X_desc_tensor_2 = torch.tensor(X_desc_perm, dtype=torch.float32)
-  X_corr_tensor_2 = torch.tensor(X_corr_perm, dtype=torch.float32)
   X_sens_tensor_2 = torch.tensor(X_sens_perm, dtype=torch.float32)
   Y_tensor_2 = torch.tensor(Y_perm, dtype=torch.float32)
 
-  dataset = utils.TensorDataset(X_ind_tensor, X_desc_tensor, X_corr_tensor, X_sens_tensor, Y_tensor, X_ind_tensor_2, X_desc_tensor_2, X_corr_tensor_2, X_sens_tensor_2, Y_tensor_2)
+  dataset = utils.TensorDataset(X_ind_tensor, X_desc_tensor, X_corr_tensor, X_sens_tensor, Y_tensor, X_ind_tensor_2, X_desc_tensor_2, X_sens_tensor_2, Y_tensor_2)
   loader = utils.DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=g)
 
   return loader

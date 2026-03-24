@@ -216,6 +216,34 @@ class CEVAEHE(nn.Module):
       logvar_desc = self.inf_logvar_desc(h_desc)
 
     return mu_corr, logvar_corr, mu_desc, logvar_desc
+  
+  def encode_desc_only(self, x_desc, x_ind, sens_soc, y=None):
+    '''
+      Encoders forward pass
+    '''
+    # Process raw tensors
+    x_desc_p = self._process_features(x_desc, self.desc_meta)
+    x_ind_p = self._process_features(x_ind, self.ind_meta)
+    sens_soc_p = self._process_features(sens_soc, self.sens_meta)
+
+    input_desc = torch.cat([t for t in (x_desc_p, x_ind_p, sens_soc_p, y) 
+                              if t is not None], dim=1)
+    # Training abduction
+    if y is not None:
+
+      # Descendant path encoder
+      h_desc = self.encoder_desc(input_desc)
+      mu_desc = self.mu_desc(h_desc)
+      logvar_desc = self.logvar_desc(h_desc)
+
+    else: #Inference
+
+      # Descendant path encoder
+      h_desc = self.inf_encoder_desc(input_desc)
+      mu_desc = self.inf_mu_desc(h_desc)
+      logvar_desc = self.inf_logvar_desc(h_desc)
+
+    return mu_desc, logvar_desc
 
   def decode(self, u_desc, u_corr, x_ind, sens_bio, sens_soc):
     '''
@@ -366,7 +394,7 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
   
-  def tc_loss(self, u_desc, s_soc):
+  def tc_loss(self, u_desc, s_soc, u_desc_2, s_soc_2):
     sample_size = u_desc.size(0)
 
     # Discriminator at chance level
@@ -374,43 +402,53 @@ class CEVAEHE(nn.Module):
 
     # process sensitive feature
     s_soc_p = self._process_features(s_soc, self.sens_meta)
-    s_soc_flipped_p = self._process_features(1- s_soc, self.sens_meta)
+    s_soc_2_p = self._process_features(s_soc_2, self.sens_meta)
 
     ## VAE LOSS
-    input_disc_att = torch.cat((u_desc, s_soc_p), dim=1)
-    disc_logit_real_att = self.discriminate(input_disc_att)
+    # permuted samples
+    permuted_indices = np.random.permutation(u_desc.size(0))
+    u_desc_permuted = u_desc_2[permuted_indices]
 
-    input_disc_flipped_att = torch.cat((u_desc, s_soc_flipped_p), dim=1)
-    disc_logit_flipped_att = self.discriminate(input_disc_flipped_att)
+    input_disc = torch.cat((u_desc, s_soc_p), dim=1)
+    disc_logit_real = self.discriminate(input_disc)
 
-    tc_L = nn.BCEWithLogitsLoss()(disc_logit_real_att, target_chance)\
-          + nn.BCEWithLogitsLoss()(disc_logit_flipped_att, target_chance)
+    input_disc_perm = torch.cat((u_desc_permuted, s_soc_2_p), dim=1)
+    disc_logit_perm = self.discriminate(input_disc_perm)
+
+    tc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_chance)\
+          + nn.BCEWithLogitsLoss()(disc_logit_perm, target_chance)
     
     return tc_L
   
-  def disc_loss(self, u_desc, s_soc):
+  def disc_loss(self, u_desc, s_soc, u_desc_2, s_soc_2):
     sample_size = u_desc.size(0)
 
     # Discriminator prediction targets
     target_real = torch.full((sample_size,), 0.9, dtype=torch.float).to(self.device)
-    target_flipped = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
+    target_perm = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
 
     # process sensitive feature
     s_soc_p = self._process_features(s_soc, self.sens_meta)
-    s_soc_flipped_p = self._process_features(1- s_soc, self.sens_meta)
+    s_soc_2_p = self._process_features(s_soc_2, self.sens_meta)
 
     ## DISCRIMINATOR TRAINING
+    # detach tensors
     u_desc_det = u_desc.detach()
+    u_desc_2_det = u_desc_2.detach()
 
-    input_disc_det = torch.cat((u_desc_det, s_soc_p), dim=1)
-    disc_logit_real = self.discriminate(input_disc_det)
+    # permuted samples
+    permuted_indices = np.random.permutation(u_desc_det.size(0))
+    u_desc_permuted = u_desc_2_det[permuted_indices]
 
-    input_disc_flipped = torch.cat((u_desc_det, s_soc_flipped_p), dim=1)
-    disc_logit_flipped = self.discriminate(input_disc_flipped)
+    input_disc = torch.cat((u_desc_det, s_soc_p), dim=1)
+    disc_logit_real = self.discriminate(input_disc)
+
+    input_disc_perm = torch.cat((u_desc_permuted, s_soc_2_p), dim=1)
+    disc_logit_perm = self.discriminate(input_disc_perm)
 
     # Discriminator Loss
     disc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_real)\
-            + nn.BCEWithLogitsLoss()(disc_logit_flipped, target_flipped)
+            + nn.BCEWithLogitsLoss()(disc_logit_perm, target_perm)
     
     return disc_L
 
@@ -477,7 +515,8 @@ class CEVAEHE(nn.Module):
 
     return fair_L_equal + fair_L_opp
   
-  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y,
+  def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
+                     x_ind_2, x_desc_2, x_sens_2, y_2,
                      distill_weight=0, kl_weight=1.0, tc_weight=1.0, 
                      u_ind_weight=1):
     '''
@@ -542,25 +581,27 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_corr, logvar_corr) + 1.5*self.kl_loss(mu_desc, logvar_desc)
 
     # ---- TC loss
-    tc_L = self.tc_loss(u_desc, s_soc)
+    mu_desc_2, logvar_desc_2 = self. encode_desc_only(x_desc_2, x_ind_2, x_sens_2, y_2)
+    u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
+    tc_L = self.tc_loss(u_desc, s_soc, u_desc_2, x_sens_2)
 
     # ---- Latent Counterfactual Invariance loss 
     # for a flipped Sociological sensitive attribute
     # We keep the Biological sensitive attribute constant
     s_soc_flipped = 1 - s_soc
-    # y_soc_cf_pred = torch.sigmoid(y_soc_cf_logits).detach()
+    y_soc_cf_pred = torch.sigmoid(y_soc_cf_logits).detach()
 
-    # _, _, mu_desc_cf, logvar_desc_cf = self.encode(
-    #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y_soc_cf_pred) # Cycle invariance
+    _, _, mu_desc_cf, logvar_desc_cf = self.encode(
+        x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y_soc_cf_pred) # Cycle invariance
     # _, _, mu_desc_cf, logvar_desc_cf = self.encode(
     #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y) # Adbuction invariance
-    _, _, mu_desc_cf_inf, logvar_desc_cf_inf = self.encode(
-        x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y=None) # Inference invariance
+    # _, _, mu_desc_cf_inf, logvar_desc_cf_inf = self.encode(
+    #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y=None) # Inference invariance
     
-    # cf_invar_L = self.kl_div(mu_desc_cf, logvar_desc_cf, mu_desc, logvar_desc)\
-    #             + self.kl_div(mu_desc, logvar_desc, mu_desc_cf, logvar_desc_cf)
-    cf_invar_L = self.kl_div(mu_desc_cf_inf, logvar_desc_cf_inf, mu_desc, logvar_desc)\
-                + self.kl_div(mu_desc_inf, logvar_desc_inf, mu_desc_cf_inf, logvar_desc_cf_inf)
+    cf_invar_L = self.kl_div(mu_desc_cf, logvar_desc_cf, mu_desc, logvar_desc)\
+                + self.kl_div(mu_desc, logvar_desc, mu_desc_cf, logvar_desc_cf)
+    # cf_invar_L = self.kl_div(mu_desc_cf_inf, logvar_desc_cf_inf, mu_desc, logvar_desc)\
+    #             + self.kl_div(mu_desc_inf, logvar_desc_inf, mu_desc_cf_inf, logvar_desc_cf_inf)
 
     # ---- Latent Redundancy Loss
     u_redun_L = self.u_redundancy_loss(u_desc, u_corr, x_ind, s_soc, s_bio, y_pred_prob)
@@ -574,7 +615,8 @@ class CEVAEHE(nn.Module):
     return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*cf_invar_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
         y_pred_prob.detach(), \
-           mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach()
+           mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach(), \
+           mu_desc_2.detach()
 
 class EarlyStopping:
   def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10):
