@@ -4,7 +4,7 @@ python3 src/main.py \
   --mapping "configs/uci_scm_0.json" \
   --n_epochs 200 \
   --vae_lr 0.001 \
-  --disc_lr 0.0001 \
+  --disc_lr 0.0005 \
   --pred_a 2 \
   --tc_b 5 \
   --fair_b 1 \
@@ -13,5 +13,5 @@ python3 src/main.py \
   --tc_warm_up 0 \
   --distill_warm_up 0 \
   --batch_size 32 \
-  --disc_step 2
+  --disc_step 1
 
