@@ -33,8 +33,8 @@ def main():
     baseline_df, audit_df = run_sps_bootstrap(
       dataset,
       feature_mapping,
-      iterations=5,
-      lite_epochs=10,
+      iterations=20,
+      lite_epochs=100,
       logger=logger,
       args=args,
     )

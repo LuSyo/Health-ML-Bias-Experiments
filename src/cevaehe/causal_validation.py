@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, roc_auc_score
 import torch
 
 from cevaehe.model import CEVAEHE
@@ -171,6 +171,34 @@ def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
 
   return fidelity_scores
 
+def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob):
+  '''
+    Measures the Equalised Counterfactual Odds criteria for counterfactual fairness via Mean Absolute Counterfactual Error:
+    An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. 
+
+    Inputs:
+      - y_true: The factual actual outcome (as binary)
+      - y_cf: The counterfactual actual outcome (as probabilities)
+      - y_pred: The factual prediction (as probabilities)
+      - y_pred_cf: The counterfactual prediction (as probabilities)
+
+    Outputs:
+      mace: Mean Absolute Counterfactual Error
+  '''
+  total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
+
+  # IECO MACE, conditioned on equality of factual and counterfactual outcome
+  y_cf = (y_cf_prob > 0.5).astype(int)
+  equal_outcome = y_cf == y_true
+
+  if not equal_outcome.any():
+    ieco_mace = np.nan
+  else:
+    ieco_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob)[equal_outcome])
+
+  return ieco_mace, total_mace
+
+
 def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger, args):
   """
   Stochastic pathway sensitivity (SPS) audit
@@ -265,14 +293,17 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
     iteration_results = sps_test_ceveahe(model, val_loader, features, current_desc,
                                          logger, args)
 
-    results.append(iteration_results)
+    results.extend(iteration_results)
           
-  return pd.DataFrame([baseline_results]), pd.DataFrame(results)
+  return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
 def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
   model.eval()
-  all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf = \
-  [], [], [], [], [], []
+  all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
+  [], [], [], [], [], [], [], [], [], []
+
+  is_baseline = len(desc_features) == 0
+  if is_baseline: logger.info(f'---BASELINE RESULTS---')
 
   with torch.no_grad():
     for batch in test_loader:
@@ -281,19 +312,48 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
       s_bio = x_sens.clone()
       s_soc = x_sens.clone()
 
-      # Abduct latent variables
+      #--- ABDUCTION ---
+      # Get the latent variables, the reconstructed features, 
+      # the counterfactual outcomes
       mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y)
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      x_desc_pred_logits, _, _, x_desc_cf, _, _, _, _ = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, _ = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
       x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
 
+      y_cf_logits = y_bio_cf_logits if is_baseline else y_soc_cf_logits
+      y_cf_prob = torch.sigmoid(y_cf_logits)
+
+      # --- FACTUAL INFERENCE ---
+      # Get the factual prediction
+      mu_corr_inf, _, mu_desc_inf, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
+      _, _, y_pred_inf_logits, *_= model.decode(mu_desc_inf, mu_corr_inf, x_ind, s_bio, s_soc)
+
+      y_pred_prob = torch.sigmoid(y_pred_inf_logits)
+
+      # --- SYNTHETIC COUNTERFACTUAL INFERENCE ---
+      # Get the counterfactual prediction
+      x_desc_syn = x_desc if is_baseline else x_desc_cf
+      x_corr_syn = x_corr_cf if is_baseline else x_corr
+      s_bio_cf = 1 - s_bio if is_baseline else s_bio
+      s_soc_cf = s_soc if is_baseline else 1 - s_soc
+
+      mu_corr_cf_inf, _, mu_desc_cf_inf, _ = model.encode(x_desc_syn, x_corr_syn, x_ind, s_bio_cf, s_soc_cf, y=None)
+      _, _, y_pred_cf_inf_logits, *_= model.decode(mu_desc_cf_inf, mu_corr_cf_inf, x_ind, s_bio_cf, s_soc_cf)
+
+      y_pred_cf_prob = torch.sigmoid(y_pred_cf_inf_logits)
+
+      # --- STORE BATCH RESULTS ---
       all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
       all_x_desc.append(x_desc.cpu().numpy())
       all_x_corr.append(x_corr.cpu().numpy())
+      all_y_true.append(y.cpu().numpy())
+      all_y_cf_prob.append(y_cf_prob.cpu().numpy())
+      all_y_pred_prob.append(y_pred_prob.cpu().numpy())
+      all_y_pred_cf_prob.append(y_pred_cf_prob.cpu().numpy())
 
       batch_size = x_corr.shape[0]
       if x_desc_pred is not None:
@@ -312,6 +372,10 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
   x_corr_np = np.stack(list(np.concatenate(all_x_corr)))
   x_desc_pred_np = np.stack(list(np.concatenate(all_x_desc_pred)))
   x_desc_cf_np = np.stack(list(np.concatenate(all_x_desc_cf)))
+  y_true_np = np.concatenate(all_y_true).flatten()
+  y_cf_prob_np = np.concatenate(all_y_cf_prob).flatten()
+  y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
+  y_pred_cf_prob_np = np.concatenate(all_y_pred_cf_prob).flatten()
 
   # Latent Utility Fidelity
   f_desc = evaluate_latent_utility_fidelity(
@@ -327,6 +391,15 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
       x_desc_pred_np, x_desc_cf_np, model.desc_meta
   )
 
+  # IECO MACE
+  ieco_mace, total_mace = calculate_ieco_mace(y_true_np, y_cf_prob_np, y_pred_prob_np, y_pred_cf_prob_np)
+  logger.info(f'IECO MACE: {ieco_mace}')
+
+  # Utility: ROC-AUC
+  roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
+  logger.info(f'ROC AUC: {roc_auc}')
+
+  results = []
   for feature in features:
     f_name = feature['name']
     
@@ -337,9 +410,12 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
     sensitivity = cf_sensitivity[f_name]['score'] if cf_sensitivity.get(f_name, False) else np.nan
 
 
-    return {
+    results.append({
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
+      "roc_auc": roc_auc,
+      "ieco_mace": ieco_mace,
+      "total_mace": total_mace,
       "cf_sensitivity": sensitivity,
       "sensitivity_scoring": cf_sensitivity[f_name]['score_type'] if cf_sensitivity.get(f_name, False) else "",
       "f_desc": f_desc_score,
@@ -349,4 +425,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
       "fidelity_scoring": f_desc[f_name]['score_type'] if f_desc.get(f_name, False) else f_corr[f_name]['score_type'],
       "desc_size": len(desc_features),
       "u_desc_dim": model.ud_dim
-    }
+    })
+    
+  return results
