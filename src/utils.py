@@ -50,6 +50,9 @@ def parse_args():
   parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
   parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
 
+  parser.add_argument('--sps_epochs', type=int, default=Config.SPS_EPOCHS)
+  parser.add_argument('--sps_iter', type=int, default=Config.SPS_ITER)
+
   return parser.parse_args()
 
 def load_feature_mapping(path):

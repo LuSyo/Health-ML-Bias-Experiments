@@ -240,7 +240,7 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
     args
   )
 
-  baseline_results = sps_test_ceveahe(model, val_loader, features, [],
+  baseline_results = sps_test_ceveahe(model, val_loader, features, [], -1,
                                          logger, args)
   
   for i in range(iterations):
@@ -290,14 +290,14 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
     )
 
     # 4. Measure metrics for this causal model
-    iteration_results = sps_test_ceveahe(model, val_loader, features, current_desc,
+    iteration_results = sps_test_ceveahe(model, val_loader, features, current_desc, i,
                                          logger, args)
 
     results.extend(iteration_results)
           
   return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
-def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
+def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, logger, args):
   model.eval()
   all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
   [], [], [], [], [], [], [], [], [], []
@@ -411,6 +411,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, logger, args):
 
 
     results.append({
+      "iteration": iteration,
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "roc_auc": roc_auc,
