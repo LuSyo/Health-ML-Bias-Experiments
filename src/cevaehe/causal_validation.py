@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
-from sklearn.metrics import mean_squared_error, roc_auc_score
+from sklearn.metrics import mean_squared_error, roc_auc_score, average_precision_score
 import torch
 
 from cevaehe.model import CEVAEHE
@@ -395,9 +395,11 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
   ieco_mace, total_mace = calculate_ieco_mace(y_true_np, y_cf_prob_np, y_pred_prob_np, y_pred_cf_prob_np)
   logger.info(f'IECO MACE: {ieco_mace}')
 
-  # Utility: ROC-AUC
+  # Utility: AUPRC
   roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
+  auprc = average_precision_score(y_true_np, y_pred_prob_np)
   logger.info(f'ROC AUC: {roc_auc}')
+  logger.info(f'AUPRC: {auprc}')
 
   results = []
   for feature in features:
@@ -415,6 +417,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "roc_auc": roc_auc,
+      "auprc": auprc,
       "ieco_mace": ieco_mace,
       "total_mace": total_mace,
       "cf_sensitivity": sensitivity,
