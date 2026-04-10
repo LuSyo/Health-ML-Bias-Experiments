@@ -96,9 +96,9 @@ def main():
     # grad_norm_fig = grad_curve(training_metrics)
     # grad_norm_fig.savefig(f'{results_path}/grad_norm_curve.png', bbox_inches='tight')
 
-    test_results, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
+    test_outputs, _, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
 
-    test_u_clustering_analysis_fig = u_clustering_analysis(test_results)
+    test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
 
@@ -112,13 +112,6 @@ def main():
         'brier_score': [strat_perf_metrics['brier_score_0'], strat_perf_metrics['brier_score_1']],
     })
     strat_perf_summary.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
-
-    # CAUSAL MODEL VALIDATION
-    # Independence of u_desc and u_corr
-    u_desc_matrix = np.stack(test_results['u_desc'].values)
-    u_corr_matrix = np.stack(test_results['u_corr'].values)
-    u_u_cca = get_cca(u_desc_matrix, u_corr_matrix)
-    logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {u_u_cca:.4f}')
 
     # Generate counterfactual and latent space datasets (fair dataset)
     logger.info('Saving latent and counterfactual datasets...')

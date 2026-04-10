@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity, counterfactual_sensitivity
-from metrics import calculate_performance_metrics, stratified_perf
+from metrics import calculate_performance_metrics, stratified_perf, get_cca
 
 def test_ceveahe(model, test_loader, logger, args):
 
@@ -45,7 +45,7 @@ def test_ceveahe(model, test_loader, logger, args):
       all_x_corr.append(x_corr.cpu().numpy())
       all_u_desc_cf.append(mu_desc_cf.cpu().numpy())
   
-  test_results = pd.DataFrame({
+  test_outputs = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),
       'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
       'y_full_cf_prob': np.concatenate(all_y_full_cf_prob).flatten(),
@@ -58,62 +58,62 @@ def test_ceveahe(model, test_loader, logger, args):
       'x_desc_cf': list(np.concatenate(all_x_desc_cf)),
       'x_corr': list(np.concatenate(all_x_corr)),
   })
-  test_results['y_pred'] = (test_results['y_pred_prob'] > 0.5).astype(int)
+  test_outputs['y_pred'] = (test_outputs['y_pred_prob'] > 0.5).astype(int)
 
   perf_metrics = calculate_performance_metrics(
-    test_results['y_true'],
-    test_results['y_pred'],
-    test_results['y_pred_prob'])
+    test_outputs['y_true'],
+    test_outputs['y_pred'],
+    test_outputs['y_pred_prob'])
   
   strat_perf_metrics = stratified_perf(
-    test_results['y_true'],
-    test_results['y_pred'],
-    test_results['y_pred_prob'],
-    test_results['sens'],
+    test_outputs['y_true'],
+    test_outputs['y_pred'],
+    test_outputs['y_pred_prob'],
+    test_outputs['sens'],
   )
 
   ## Verify invariance of Udesc by Sens
   # 1. Sex classifier performance
   u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
-    np.stack(test_results['u_desc']),
-    test_results['sens'],
+    np.stack(test_outputs['u_desc']),
+    test_outputs['sens'],
     args.seed
   )
 
   x_desc_sens_auc_mean, x_desc_sens_auc_std = run_sens_classifier(
-    np.stack(test_results['x_desc']),
-    test_results['sens'],
+    np.stack(test_outputs['x_desc']),
+    test_outputs['sens'],
     args.seed
   )
 
   u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
-    np.stack(test_results['u_corr']),
-    test_results['sens'],
+    np.stack(test_outputs['u_corr']),
+    test_outputs['sens'],
     args.seed
   )
 
   x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
-    np.stack(test_results['x_corr']),
-    test_results['sens'],
+    np.stack(test_outputs['x_corr']),
+    test_outputs['sens'],
     args.seed
   )
 
   # 2. Counterfactual invariance
   u_desc_recon_loss = latent_recon_loss(
-    np.stack(test_results['u_desc']), 
-    np.stack(test_results['u_desc_cf']))
+    np.stack(test_outputs['u_desc']), 
+    np.stack(test_outputs['u_desc_cf']))
 
   # 3. Verify utility of Udesc
   desc_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(test_results['u_desc']),
-    np.stack(test_results['x_desc']),
+    np.stack(test_outputs['u_desc']),
+    np.stack(test_outputs['x_desc']),
     model.desc_meta,
     seed=args.seed
   )
 
   corr_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(test_results['u_corr']),
-    np.stack(test_results['x_corr']),
+    np.stack(test_outputs['u_corr']),
+    np.stack(test_outputs['x_corr']),
     model.corr_meta,
     seed=args.seed
   )
@@ -126,22 +126,23 @@ def test_ceveahe(model, test_loader, logger, args):
   
   ## Calculate the Total Effect Error
   te_error, obs_disparity, est_ate, internal_te_error = calculate_te_error(
-      test_results['y_true'].values,
-      test_results['y_pred_prob'].values,
-      test_results['y_full_cf_prob'].values,
-      test_results['sens'].values
+      test_outputs['y_true'].values,
+      test_outputs['y_pred_prob'].values,
+      test_outputs['y_full_cf_prob'].values,
+      test_outputs['sens'].values
   )
 
   # Counterfactual sensitivity of Xdesc features
   sensitivity_results = counterfactual_sensitivity(
-    np.stack(test_results['x_desc_pred']),
-    np.stack(test_results['x_desc_cf']),
+    np.stack(test_outputs['x_desc_pred']),
+    np.stack(test_outputs['x_desc_cf']),
     model.desc_meta
   )
 
   logger.info("--- Xdesc Counterfactual Sensitivity ---")
   for feature, score in sensitivity_results.items():
-     logger.info(f'{feature} score ({score['score_type']}): {score['score']:.4f}')
+    logger.info(f'{feature} score ({score['score_type']}): {score['score']:.4f}')
+    perf_metrics[f"{feature}_ccs_{score['score_type']}"] = score['score']
 
   ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
@@ -159,7 +160,24 @@ def test_ceveahe(model, test_loader, logger, args):
   logger.info(f'Total Effect (TE) Error: {te_error:.4f}')
   logger.info(f'Internal Total Effect (TE) Error: {internal_te_error:.4f}')
 
-  return test_results, strat_perf_metrics
+  # CAUSAL MODEL VALIDATION
+  # Independence of u_desc and u_corr
+  u_desc_matrix = np.stack(test_outputs['u_desc'].values)
+  u_corr_matrix = np.stack(test_outputs['u_corr'].values)
+  perf_metrics["u_u_cca"] = get_cca(u_desc_matrix, u_corr_matrix)
+  logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {perf_metrics["u_u_cca"]:.4f}')
+
+  perf_metrics['u_desc_sens_auc_mean'] = u_desc_sens_auc_mean
+  perf_metrics['x_desc_sens_auc_mean'] = x_desc_sens_auc_mean
+  perf_metrics['u_corr_sens_auc_mean'] = u_corr_sens_auc_mean
+  perf_metrics['x_corr_sens_auc_mean'] = x_corr_sens_auc_mean
+  perf_metrics['u_desc_recon_loss'] = u_desc_recon_loss
+  perf_metrics['obs_disparity'] = obs_disparity
+  perf_metrics['est_ate'] = est_ate
+  perf_metrics['te_error'] = te_error
+  perf_metrics['internal_te_error'] = internal_te_error
+
+  return test_outputs, perf_metrics, strat_perf_metrics
 
 def generate_fair_dataset(model, dataset, feature_mapping, args):
   """
