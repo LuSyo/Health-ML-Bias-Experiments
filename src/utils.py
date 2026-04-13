@@ -14,12 +14,27 @@ def parse_args():
 
   parser = argparse.ArgumentParser(description="CEVAE-HE Training and Testing Pipeline")
 
+  # Experiment setup
+  parser.add_argument('--exp_name', type=str, default=date_str)
+  parser.add_argument('--root_dir', type=str, default='')
+  parser.add_argument('--device', type=str, default=Config.DEVICE)
+  parser.add_argument('--seed', type=int, default=Config.SEED)
   parser.add_argument('--data', type=str)
   parser.add_argument('--mapping', type=str)
   parser.add_argument('--cevaehe', type=str, default=None)
   parser.add_argument('--cf_dataset', type=str, default=None)
   parser.add_argument('--latent_dataset', type=str, default=None)
 
+  # Finetuning 
+  parser.add_argument('--param_space', type=str, default=None)
+  parser.add_argument('--param_iter', type=int, default=50)
+  parser.add_argument('--cross_val', type=int, default=1)
+
+  # SPS audit
+  parser.add_argument('--sps_epochs', type=int, default=Config.SPS_EPOCHS)
+  parser.add_argument('--sps_iter', type=int, default=Config.SPS_ITER)
+
+  # Training
   parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)
   parser.add_argument('--n_epochs', type=int, default=Config.N_EPOCHS)
   parser.add_argument('--vae_lr', type=float, default=Config.VAE_LR)
@@ -29,7 +44,7 @@ def parse_args():
   parser.add_argument('--tc_warm_up', type=int, default=Config.TC_WARM_UP)
   parser.add_argument('--disc_step', type=int, default=Config.DISC_STEP)
 
-  parser.add_argument('--seed', type=int, default=Config.SEED)
+  # CEVAE-HE 
   parser.add_argument('--uc_dim', type=int, default=Config.UC_DIM)
   parser.add_argument('--ud_dim', type=int, default=Config.UD_DIM)
   parser.add_argument('--h_dim', type=int, default=Config.H_DIM)
@@ -41,23 +56,17 @@ def parse_args():
   parser.add_argument('--tc_b', type=float, default=Config.TC_BETA)
   parser.add_argument('--u_ind_b', type=float, default=Config.U_IND_BETA)
 
-  parser.add_argument('--exp_name', type=str, default=date_str)
-
-  parser.add_argument('--root_dir', type=str, default='')
-
-  parser.add_argument('--device', type=str, default=Config.DEVICE)
-
+  # Latent space sampling
   parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
-  parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
 
-  parser.add_argument('--sps_epochs', type=int, default=Config.SPS_EPOCHS)
-  parser.add_argument('--sps_iter', type=int, default=Config.SPS_ITER)
+  # Classifier bootstrap training
+  parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
 
   return parser.parse_args()
 
-def load_feature_mapping(path):
+def load_config(path):
   if not os.path.exists(path):
-    raise FileNotFoundError(f"Mapping file not found at {path}")
+    raise FileNotFoundError(f"Config file not found at {path}")
     
   with open(path, 'r') as f:
       return json.load(f)

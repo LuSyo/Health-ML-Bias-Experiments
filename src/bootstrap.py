@@ -10,7 +10,7 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from config import Config
 from cevaehe.model import CEVAEHE
 from classifiers.train import initial_hyperparam_tuning, train_random_forest
-from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
+from utils import parse_args, load_config, set_global_seeds, setup_logger
 from metrics import calculate_performance_metrics, get_grouped_roc_curve, stratified_perf, avg_perf_per_patient,get_interp_tpr
 from plots import stratified_roc_curves
 
@@ -37,7 +37,7 @@ def main():
 
   try:
     # Load the feature mapping
-    feature_mapping = load_feature_mapping(args.mapping)
+    feature_mapping = load_config(args.mapping)
 
     # Load the dataset
     dataset = pd.read_csv(Config.DATA_DIR + args.data)

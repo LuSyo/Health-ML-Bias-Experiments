@@ -5,7 +5,7 @@ import gc
 
 from config import Config
 from cevaehe.model import CEVAEHE
-from utils import parse_args, load_feature_mapping, set_global_seeds, setup_logger
+from utils import parse_args, load_config, set_global_seeds, setup_logger
 from cevaehe.causal_validation import run_sps_bootstrap
 
 def main():
@@ -26,7 +26,7 @@ def main():
     dataset = pd.read_csv(Config.DATA_DIR + args.data)
 
     # Load the feature mapping
-    feature_mapping = load_feature_mapping(args.mapping)
+    feature_mapping = load_config(args.mapping)
 
     # Establish baseline
 
