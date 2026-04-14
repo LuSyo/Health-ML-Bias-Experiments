@@ -3,14 +3,14 @@ sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 python3 src/pathway_audit.py \
-  --exp_name "SPS_audit_100_with_ind" \
+  --exp_name "SPS_14Apr" \
   --data "heart_disease_cleaned.csv" \
-  --mapping "configs/features_with_ind.json" \
-  --sps_iter 100 \
+  --mapping "configs/features.json" \
+  --sps_iter 50 \
   --sps_epochs 100 \
-  --pred_a 2 \
-  --tc_b 8 \
-  --fair_b 2 \
+  --pred_a 1 \
+  --tc_b 6 \
+  --fair_b 4 \
   --vae_lr 0.0015 \
   --disc_lr 0.0005 \
   --disc_step 1 \

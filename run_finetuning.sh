@@ -1,9 +1,9 @@
 python3 src/finetuning.py \
-  --exp_name "finetuning_recon_params" \
+  --exp_name "finetuning_recon_params_0" \
   --data "heart_disease_cleaned.csv" \
-  --mapping "configs/uci_scm_45.json" \
-  --param_space "configs/param_space_2.json" \
-  --param_iter 20 \
+  --mapping "configs/uci_scm_26.json" \
+  --param_space "configs/recon_param_space.json" \
+  --param_iter 15 \
   --cross_val 3 \
   --n_epochs 200 \
   --vae_lr 0.0015 \

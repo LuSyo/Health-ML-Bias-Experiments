@@ -102,7 +102,7 @@ def main():
 
     try:
       for j in range(args.cross_val):
-        logger.info(f"Bootstrap #{i}")
+        logger.info(f"Bootstrap #{j}")
         
         boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
 

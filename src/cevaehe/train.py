@@ -40,9 +40,10 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
                                  start_epoch=max(args.kl_warm_up, args.tc_warm_up, args.distill_warm_up))
 
   training_log = []
+  last_train_results = None
 
   for epoch in range(args.n_epochs):
-    # logger.info(f'--- Start Epoch {epoch}')
+    logger.info(f'Epoch {epoch}')
 
     epoch_metrics = {
         'total_vae_loss': [],

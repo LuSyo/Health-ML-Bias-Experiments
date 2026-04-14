@@ -134,11 +134,16 @@ def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
       feature_name = feature_meta['name']
       feature_type = feature_meta['type']
       target_y = x[:, i]
+
+      cv_folds = 5
+      scoring = ""
+      scores = np.zeros(cv_folds)
+      norm_score = 0
       
       if feature_type in ['categorical', 'binary']:
         # Classification Probe
         probe = LogisticRegression(max_iter=1000, random_state=seed)
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=seed)
 
         if feature_type == 'binary':
           scoring = 'roc_auc'
@@ -156,7 +161,7 @@ def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
       elif feature_type == 'continuous':
         # Regression Probe
         probe = Ridge(random_state=seed)
-        cv = KFold(n_splits=5, shuffle=True, random_state=seed)
+        cv = KFold(n_splits=cv_folds, shuffle=True, random_state=seed)
         
         # Use R-squared to measure variance explained
         scoring = 'r2'
@@ -299,8 +304,8 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
 
 def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, logger, args):
   model.eval()
-  all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
-  [], [], [], [], [], [], [], [], [], []
+  all_sens, all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
+  [], [], [], [], [], [], [], [], [], [], [], []
 
   is_baseline = len(desc_features) == 0
   if is_baseline: logger.info(f'---BASELINE RESULTS---')
@@ -319,12 +324,14 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, _ = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
       x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
 
       y_cf_logits = y_bio_cf_logits if is_baseline else y_soc_cf_logits
       y_cf_prob = torch.sigmoid(y_cf_logits)
+
+      y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
 
       # --- FACTUAL INFERENCE ---
       # Get the factual prediction
@@ -346,12 +353,14 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       y_pred_cf_prob = torch.sigmoid(y_pred_cf_inf_logits)
 
       # --- STORE BATCH RESULTS ---
+      all_sens.append(x_sens.cpu().numpy())
       all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
       all_x_desc.append(x_desc.cpu().numpy())
       all_x_corr.append(x_corr.cpu().numpy())
       all_y_true.append(y.cpu().numpy())
       all_y_cf_prob.append(y_cf_prob.cpu().numpy())
+      all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
       all_y_pred_prob.append(y_pred_prob.cpu().numpy())
       all_y_pred_cf_prob.append(y_pred_cf_prob.cpu().numpy())
 
@@ -366,6 +375,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       else:
         all_x_desc_cf.append(np.empty((batch_size, 0)))
     
+  sens_np = np.concatenate(all_sens).flatten()
   u_corr_np = np.stack(list(np.concatenate(all_u_corr)))
   u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
   x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
@@ -374,6 +384,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
   x_desc_cf_np = np.stack(list(np.concatenate(all_x_desc_cf)))
   y_true_np = np.concatenate(all_y_true).flatten()
   y_cf_prob_np = np.concatenate(all_y_cf_prob).flatten()
+  y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
   y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
   y_pred_cf_prob_np = np.concatenate(all_y_pred_cf_prob).flatten()
 
@@ -391,7 +402,27 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       x_desc_pred_np, x_desc_cf_np, model.desc_meta
   )
 
+  # # Total Effect Error
+  te_error, *_ = calculate_te_error(
+    y_true_np,
+    y_pred_prob_np,
+    y_full_cf_prob_np,
+    sens_np
+  )
+
   # IECO MACE
+  stratified_ieco_mace = {}
+  for v in np.unique(sens_np):
+    group_mask = sens_np == v
+    group_ieco_mace, _ = calculate_ieco_mace(
+      y_true_np[group_mask],
+      y_cf_prob_np[group_mask], 
+      y_pred_prob_np[group_mask], 
+      y_pred_cf_prob_np[group_mask]
+    )
+    stratified_ieco_mace["ieco_mace_" + str(v)] = group_ieco_mace
+    logger.info(f'IECO MACE, GROUP {str(v)}: {group_ieco_mace}')
+
   ieco_mace, total_mace = calculate_ieco_mace(y_true_np, y_cf_prob_np, y_pred_prob_np, y_pred_cf_prob_np)
   logger.info(f'IECO MACE: {ieco_mace}')
 
@@ -418,6 +449,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "roc_auc": roc_auc,
       "auprc": auprc,
+      "te_error": te_error,
       "ieco_mace": ieco_mace,
       "total_mace": total_mace,
       "cf_sensitivity": sensitivity,
@@ -429,6 +461,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       "fidelity_scoring": f_desc[f_name]['score_type'] if f_desc.get(f_name, False) else f_corr[f_name]['score_type'],
       "desc_size": len(desc_features),
       "u_desc_dim": model.ud_dim
-    })
+    } | stratified_ieco_mace)
     
   return results

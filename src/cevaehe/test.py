@@ -1,3 +1,4 @@
+from typing import cast, List, Any
 import torch
 import numpy as np
 import pandas as pd
@@ -75,45 +76,45 @@ def test_ceveahe(model, test_loader, logger, args):
   ## Verify invariance of Udesc by Sens
   # 1. Sex classifier performance
   u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
-    np.stack(test_outputs['u_desc']),
+    np.stack(cast(List[Any], test_outputs['u_desc'])),
     test_outputs['sens'],
     args.seed
   )
 
   x_desc_sens_auc_mean, x_desc_sens_auc_std = run_sens_classifier(
-    np.stack(test_outputs['x_desc']),
+    np.stack(cast(List[Any], test_outputs['x_desc'])),
     test_outputs['sens'],
     args.seed
   )
 
   u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
-    np.stack(test_outputs['u_corr']),
+    np.stack(cast(List[Any], test_outputs['u_corr'])),
     test_outputs['sens'],
     args.seed
   )
 
   x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
-    np.stack(test_outputs['x_corr']),
+    np.stack(cast(List[Any], test_outputs['x_corr'])),
     test_outputs['sens'],
     args.seed
   )
 
   # 2. Counterfactual invariance
   u_desc_recon_loss = latent_recon_loss(
-    np.stack(test_outputs['u_desc']), 
-    np.stack(test_outputs['u_desc_cf']))
+    np.stack(cast(List[Any], test_outputs['u_desc'])), 
+    np.stack(cast(List[Any], test_outputs['u_desc_cf'])))
 
   # 3. Verify utility of Udesc
   desc_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(test_outputs['u_desc']),
-    np.stack(test_outputs['x_desc']),
+    np.stack(cast(List[Any], test_outputs['u_desc'])),
+    np.stack(cast(List[Any], test_outputs['x_desc'])),
     model.desc_meta,
     seed=args.seed
   )
 
   corr_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(test_outputs['u_corr']),
-    np.stack(test_outputs['x_corr']),
+    np.stack(cast(List[Any], test_outputs['u_corr'])),
+    np.stack(cast(List[Any], test_outputs['x_corr'])),
     model.corr_meta,
     seed=args.seed
   )
@@ -134,8 +135,8 @@ def test_ceveahe(model, test_loader, logger, args):
 
   # Counterfactual sensitivity of Xdesc features
   sensitivity_results = counterfactual_sensitivity(
-    np.stack(test_outputs['x_desc_pred']),
-    np.stack(test_outputs['x_desc_cf']),
+    np.stack(cast(List[Any], test_outputs['x_desc_pred'])),
+    np.stack(cast(List[Any], test_outputs['x_desc_cf'])),
     model.desc_meta
   )
 
@@ -162,8 +163,8 @@ def test_ceveahe(model, test_loader, logger, args):
 
   # CAUSAL MODEL VALIDATION
   # Independence of u_desc and u_corr
-  u_desc_matrix = np.stack(test_outputs['u_desc'].values)
-  u_corr_matrix = np.stack(test_outputs['u_corr'].values)
+  u_desc_matrix = np.stack(cast(List[Any], test_outputs['u_desc'].values))
+  u_corr_matrix = np.stack(cast(List[Any], test_outputs['u_corr'].values))
   perf_metrics["u_u_cca"] = get_cca(u_desc_matrix, u_corr_matrix)
   logger.info(f'Canonical Correlation Analysis between U_corr and U_desc: {perf_metrics["u_u_cca"]:.4f}')
 
