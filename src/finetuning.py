@@ -54,27 +54,27 @@ def main():
   feature_mapping = load_config(args.mapping)
 
   for i in range(n_iterations):
+    logger.info("="*15)
+
     current_params = {k: random.choice(v) for k, v in search_space.items()}
 
     for param, value in current_params.items():
       setattr(args, param, value)
 
-    data_loader_seed = args.seed + i if args.cross_val > 1 else args.seed
+    # data_loader_seed = args.seed + i if args.cross_val > 1 else args.seed
       
-    logger.info(f'Iteration {i} -----')
     # logger.info(f'Corr. recon. loss alpha: {args.corr_a}')
     # logger.info(f'Desc. recon. loss alpha: {args.desc_a}')
     # logger.info(f'Prediction loss alpha: {args.pred_a}')
     # logger.info(f'Fair loss beta: {args.fair_b}')
     # logger.info(f'TC loss beta: {args.tc_b}')
 
-    # logger.info('='*30)
 
     def finetuning_run(run_dataset, run_id):
       # Data loaders
       train_loader, val_loader, test_loader = make_bucketed_loader(
         run_dataset, feature_mapping,
-        test_size=0.2, batch_size=args.batch_size, seed=data_loader_seed)
+        test_size=0.2, batch_size=args.batch_size, seed=args.seed)
 
       # Feature metadata
       ind_meta = feature_mapping['ind']
@@ -102,6 +102,7 @@ def main():
 
     try:
       for j in range(args.cross_val):
+        logger.info(f'Iteration #{i}')
         logger.info(f"Bootstrap #{j}")
         
         boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
