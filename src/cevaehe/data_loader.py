@@ -88,7 +88,10 @@ def make_bucketed_loader(dataset, map, val_size=0.2, test_size=0.1, batch_size=3
   Y = dataset[map['target']['name']].to_numpy().reshape(-1, 1)
 
   ## TRAIN-VAL-TRAIN SPLIT
-  # Stratified by target class
+  # Stratified by target class and sensitive attribute
+  strat_cols = col_sens + [map['target']['name']]
+  stratify_key = dataset[strat_cols].astype(str).agg('_'.join, axis=1).to_numpy()
+
   N = X_sens.shape[0]
   indices = np.arange(N)
   if test_size == 0:
@@ -99,14 +102,14 @@ def make_bucketed_loader(dataset, map, val_size=0.2, test_size=0.1, batch_size=3
         indices,
         test_size=test_size,
         random_state=seed,
-        stratify=Y
+        stratify=stratify_key
     )
 
   train_index, val_index = train_test_split(
       train_val_idx,
       test_size=val_size/(1 - test_size),
       random_state=seed,
-      stratify=Y[train_val_idx]
+      stratify=stratify_key[train_val_idx]
   )
 
   # Training loader

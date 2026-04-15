@@ -1,10 +1,10 @@
 python3 src/finetuning.py \
-  --exp_name "finetuning_recon_params_0" \
+  --exp_name "finetuning_15Apr_2" \
   --data "heart_disease_cleaned.csv" \
-  --mapping "configs/uci_scm_26.json" \
-  --param_space "configs/recon_param_space.json" \
-  --param_iter 15 \
-  --cross_val 3 \
+  --mapping "configs/uci_scm_2.json" \
+  --param_space "configs/disentang_params_space_1.json" \
+  --param_iter 20 \
+  --cross_val 4 \
   --n_epochs 200 \
   --vae_lr 0.0015 \
   --disc_lr 0.0005 \
