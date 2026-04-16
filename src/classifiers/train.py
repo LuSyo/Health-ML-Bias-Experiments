@@ -25,7 +25,7 @@ def initial_hyperparam_tuning(X, y, seed=4):
   search.fit(X, y)
   return search.best_params_
 
-def train_random_forest(X_train, y_train, X_test, params, seed):
+def train_random_forest(X_train, y_train, X_test, X_cf_test, params, seed):
   '''
     Trains a sklearn RandomForestClassifier on the given training data,\
      optimised hyperparameters with 3-fold GridSearchCV
@@ -61,5 +61,6 @@ def train_random_forest(X_train, y_train, X_test, params, seed):
   rf.fit(X_train, y_train)
   y_pred = rf.predict(X_test)
   y_pred_proba = rf.predict_proba(X_test)[:, 1]
+  y_cf_pred_proba = rf.predict_proba(X_cf_test)[:, 1]
 
-  return [rf, y_pred, y_pred_proba]
+  return [rf, y_pred, y_pred_proba, y_cf_pred_proba]

@@ -73,19 +73,20 @@ def main():
 
     # Baseline features and target class
     # X = dataset.drop([target], axis=1)
-    X = dataset[feature_cols]
+    X = dataset.loc[:, feature_cols].copy()
     X[x_sens_col[0]] = dataset[x_sens_col[0]]
     y = dataset[target]
 
-    # Sociological counterfactual
-    # X_soc_cf = counterfactuals_df[x_desc_cols].merge(dataset[x_ind_cols + x_corr_cols],
-    #                                                          left_index=True,
-    #                                                          right_index=True)[feature_cols]
-    # X_soc_cf['s_bio'] = dataset[x_sens_col[0]]
-    # X_soc_cf['s_soc'] = 1 - dataset[x_sens_col[0]]
+    # Counterfactual features and target
+    counterfactuals_df[target] = (counterfactuals_df["y_full_cf_prob"] > 0.5).astype(int)
+    counterfactuals_df[x_ind_cols] = dataset[x_ind_cols]
+    counterfactuals_df[x_sens_col[0]] = 1 - dataset[x_sens_col[0]]
+    X_cf = counterfactuals_df.loc[:, feature_cols + x_sens_col].copy()
+    y_cf = counterfactuals_df.loc[:, target].copy()
 
     # Merge latents, Xsens and Xind into fair features dataframe
     fair_dataset = latents_df.merge(dataset[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
+    fair_dataset_cf = latents_df.merge(counterfactuals_df[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
 
     sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.3, random_state=42)
 
@@ -97,7 +98,7 @@ def main():
     baseline_feature_importances = []
     feature_names = X.columns.tolist()
 
-    sens_groups = np.unique(X[x_sens_col[0]].values)
+    sens_groups = X.loc[:, str(x_sens_col[0])].unique()
 
     roc_curve_data = {
       model: {group: [] for group in sens_groups} 
@@ -110,8 +111,8 @@ def main():
 
     for i, (train_index, test_index) in enumerate(sss.split(X, y)):
       logger.info(f'--- Start bootstrap loop {i}')
-      X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-      y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+      X_train, X_test, X_cf_test = X.iloc[train_index], X.iloc[test_index], X_cf.iloc[test_index]
+      y_train, y_test, y_cf_test = y.iloc[train_index], y.iloc[test_index], y_cf.iloc[test_index]
 
       # Equivalent fair training and test feature sets for each fair model
       # Model 0: Ucorr, Udesc, Xind
@@ -125,29 +126,34 @@ def main():
       if i == 0: logger.info(f'Model 0 columns: {fair_0_cols}')
       fair_0_X_train = fair_dataset.loc[fair_train_index, fair_0_cols].copy()
       fair_0_X_test = fair_dataset.loc[fair_test_index, fair_0_cols].copy()
+      fair_0_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_0_cols].copy()
 
       fair_1_cols = x_desc_cols + u_corr_cols + x_ind_cols
       if i == 0: logger.info(f'Model 1 columns: {fair_1_cols}')
       fair_1_X_train = fair_dataset.loc[fair_train_index, fair_1_cols].copy()
       fair_1_X_test = fair_dataset.loc[fair_test_index, fair_1_cols].copy()
+      fair_1_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_1_cols].copy()
 
       fair_2_cols = u_desc_cols + x_corr_cols + x_ind_cols
       if i == 0: logger.info(f'Model 2 columns: {fair_2_cols}')
       fair_2_X_train = fair_dataset.loc[fair_train_index, fair_2_cols].copy()
       fair_2_X_test = fair_dataset.loc[fair_test_index, fair_2_cols].copy()
+      fair_2_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_2_cols].copy()
 
       fair_3_cols = u_desc_cols + u_corr_cols
       if i == 0: logger.info(f'Model 3 columns: {fair_3_cols}')
       fair_3_X_train = fair_dataset.loc[fair_train_index, fair_3_cols].copy()
       fair_3_X_test = fair_dataset.loc[fair_test_index, fair_3_cols].copy()
+      fair_3_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_3_cols].copy()
 
       fair_y_train = fair_dataset.loc[fair_train_index, target].copy()
       fair_y_test = fair_dataset.loc[fair_test_index, target].copy()
+      fair_y_cf_test = fair_dataset_cf.loc[fair_test_index, target].copy()
       fair_s_ref = fair_dataset.loc[fair_test_index, x_sens_col[0]].copy()
 
       # Train the baseline and fair models
       logger.info("Train baseline model")
-      rf_baseline, y_pred, y_pred_proba = train_random_forest(X_train, y_train, X_test, best_params, args.seed)
+      rf_baseline, y_pred, y_pred_proba, y_cf_pred_proba = train_random_forest(X_train, y_train, X_test, X_cf_test, best_params, args.seed)
 
       importances = rf_baseline.feature_importances_
       baseline_feature_importances.append(importances)
@@ -155,26 +161,26 @@ def main():
       del rf_baseline
       
       logger.info("Train Fair Model 0: Ucorr, Udesc, Xind")
-      _, fair_0_y_pred, fair_0_y_pred_proba = train_random_forest(
-      fair_0_X_train, fair_y_train, fair_0_X_test, best_params, args.seed)
+      _, fair_0_y_pred, fair_0_y_pred_proba, fair_0_y_cf_pred_proba = train_random_forest(
+      fair_0_X_train, fair_y_train, fair_0_X_test, fair_0_X_cf_test, best_params, args.seed)
 
       del _
       
       logger.info("Train Fair Model 1: Ucorr, Xdesc, Xind")
-      _, fair_1_y_pred, fair_1_y_pred_proba = train_random_forest(
-      fair_1_X_train, fair_y_train, fair_1_X_test, best_params, args.seed)
+      _, fair_1_y_pred, fair_1_y_pred_proba, fair_1_y_cf_pred_proba = train_random_forest(
+      fair_1_X_train, fair_y_train, fair_1_X_test, fair_1_X_cf_test, best_params, args.seed)
 
       del _
       
       logger.info("Train Fair Model 2: Xcorr, Udesc, Xind")
-      _, fair_2_y_pred, fair_2_y_pred_proba = train_random_forest(
-      fair_2_X_train, fair_y_train, fair_2_X_test, best_params, args.seed)
+      _, fair_2_y_pred, fair_2_y_pred_proba, fair_2_y_cf_pred_proba = train_random_forest(
+      fair_2_X_train, fair_y_train, fair_2_X_test, fair_2_X_cf_test, best_params, args.seed)
 
       del _
       
       logger.info("Train Fair Model 3: Ucorr, Udesc")
-      _, fair_3_y_pred, fair_3_y_pred_proba = train_random_forest(
-      fair_3_X_train, fair_y_train, fair_3_X_test, best_params, args.seed)
+      _, fair_3_y_pred, fair_3_y_pred_proba, fair_3_y_cf_pred_proba = train_random_forest(
+      fair_3_X_train, fair_y_train, fair_3_X_test, fair_3_X_cf_test, best_params, args.seed)
 
       del _
 
@@ -210,23 +216,6 @@ def main():
         for group_id, tpr_interp in curves.items():
             roc_curve_data[name][group_id].append(tpr_interp)
 
-      # eval_configs = [
-      #     ('baseline', y_test, y_pred_proba, X_test[x_sens_col[0]]),
-      #     ('fair_0', fair_y_test, fair_0_y_pred_proba, fair_s_ref.values),
-      #     ('fair_1', fair_y_test, fair_1_y_pred_proba, fair_s_ref.values),
-      #     ('fair_2', fair_y_test, fair_2_y_pred_proba, fair_s_ref.values),
-      #     ('fair_3', fair_y_test, fair_3_y_pred_proba, fair_s_ref.values),
-      # ]
-
-      # for name, y_t, y_p, s_ref in eval_configs:
-      #   for group in [0, 1]:
-      #     mask = (s_ref == group)
-      #     # Calculate interpolated TPR for this run/group
-      #     tpr_interp = get_interp_tpr(y_t[mask], y_p[mask])
-      #     roc_curve_data[name][group].append(tpr_interp)
-
-      # print(f"Run {i}: Test set size: {len(y_test)}, Females: {np.sum(X_test['s_bio']==0)}, Female Positives: {np.sum(y_test[X_test['s_bio']==0])}")
-      # print(f"Run {i}: Test set size: {len(y_test)}, Males: {np.sum(X_test['s_bio']==1)}, Male Positives: {np.sum(y_test[X_test['s_bio']==1])}")
 
     # --- SAVE PERFORMANCE METRICS ---
     logger.info('Saving results and cleaning up memory...')

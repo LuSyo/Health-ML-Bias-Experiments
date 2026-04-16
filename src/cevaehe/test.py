@@ -225,11 +225,11 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           ## ABDUCTION PASS
           # To generate counterfactual outcome for IECO Ground Truth
           # Using y=y to invoke adbuction encoders q(u|x, s, y)
-          _, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
+          mu_c_abd, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
           
           # Get Sociological Counterfactual Outcome Y'
-          _, _, _, _, _, y_soc_cf_logits, _, _ = model.decode(mu_d_abd, mu_c_inf, x_ind, s_bio, s_soc)
-          y_soc_cf_prob = torch.sigmoid(y_soc_cf_logits)
+          _, _, _, _, _, _, _, y_full_cf_logits = model.decode(mu_d_abd, mu_c_abd, x_ind, s_bio, s_soc)
+          y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
 
           # DATASETS CONSTRUCTION
           # Counterfactual variables and outcomes
@@ -237,7 +237,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
           batch_cf = pd.DataFrame(index=ref_index)
 
           # CF Outcomes and Reconstructions
-          batch_cf['y_soc_cf_prob'] = y_soc_cf_prob.cpu().numpy().flatten()
+          batch_cf['y_full_cf_prob'] = y_full_cf_prob.cpu().numpy().flatten()
 
           # # x_desc_cf contains multiple features; map them back to names
           for i, feature in enumerate(feature_mapping['desc']):
