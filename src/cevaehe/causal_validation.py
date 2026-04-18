@@ -11,6 +11,7 @@ import torch
 from cevaehe.model import CEVAEHE
 from cevaehe.data_loader import make_bucketed_loader
 from cevaehe.train import lite_train_ceveahe
+from metrics import calculate_ieco_mace
 
 def run_sens_classifier(features, target_sens, seed=4):
   '''
@@ -175,33 +176,6 @@ def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
       }
 
   return fidelity_scores
-
-def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob):
-  '''
-    Measures the Equalised Counterfactual Odds criteria for counterfactual fairness via Mean Absolute Counterfactual Error:
-    An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. 
-
-    Inputs:
-      - y_true: The factual actual outcome (as binary)
-      - y_cf: The counterfactual actual outcome (as probabilities)
-      - y_pred: The factual prediction (as probabilities)
-      - y_pred_cf: The counterfactual prediction (as probabilities)
-
-    Outputs:
-      mace: Mean Absolute Counterfactual Error
-  '''
-  total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
-
-  # IECO MACE, conditioned on equality of factual and counterfactual outcome
-  y_cf = (y_cf_prob > 0.5).astype(int)
-  equal_outcome = y_cf == y_true
-
-  if not equal_outcome.any():
-    ieco_mace = np.nan
-  else:
-    ieco_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob)[equal_outcome])
-
-  return ieco_mace, total_mace
 
 
 def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger, args):
