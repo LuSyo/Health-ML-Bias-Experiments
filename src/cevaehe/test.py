@@ -195,65 +195,64 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
   col_sens = [f['name'] for f in feature_mapping['sens']]
   target_name = feature_mapping['target']['name']
 
-  all_counterfactuals = []
-  all_latents = []
+  all_counterfactuals: list[pd.DataFrame] = []
+  all_latents: list[pd.DataFrame] = []
   batch_size = args.batch_size
 
   with torch.no_grad():
-      for i in range(0, len(dataset), batch_size):
-          j = min(i+batch_size, len(dataset))
-          batch_df = dataset.iloc[i:j]
-          
-          # Convert to tensors
-          x_ind = torch.tensor(batch_df[col_ind].values, dtype=torch.float32).to(device)
-          x_desc = torch.tensor(batch_df[col_desc].values, dtype=torch.float32).to(device)
-          x_corr = torch.tensor(batch_df[col_corr].values, dtype=torch.float32).to(device)
-          s_bio = torch.tensor(batch_df[col_sens].values, dtype=torch.float32).to(device)
-          s_soc = s_bio.clone().to(device)
-          y = torch.tensor(batch_df[target_name].values, dtype=torch.float32).view(-1, 1).to(device)
+    for i in range(0, len(dataset), batch_size):
+      j = min(i+batch_size, len(dataset))
+      batch_df = dataset.iloc[i:j]
+      
+      # Convert to tensors
+      x_ind = torch.tensor(batch_df[col_ind].values, dtype=torch.float32).to(device)
+      x_desc = torch.tensor(batch_df[col_desc].values, dtype=torch.float32).to(device)
+      x_corr = torch.tensor(batch_df[col_corr].values, dtype=torch.float32).to(device)
+      s_bio = torch.tensor(batch_df[col_sens].values, dtype=torch.float32).to(device)
+      s_soc = s_bio.clone().to(device)
+      y = torch.tensor(batch_df[target_name].values, dtype=torch.float32).view(-1, 1).to(device)
 
-          ## INFERENCE PASS 
-          # To generate latent variable samples and counterfactual features
-          # Using y=None to invoke inference encoders q(u|x, s)
-          mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)        
-          
-          _, _, _, x_desc_cf, x_corr_cf, *_ = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
+      ## INFERENCE PASS 
+      # To generate latent variable samples and counterfactual features
+      # Using y=None to invoke inference encoders q(u|x, s)
+      mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)        
+      
+      _, _, _, x_desc_cf, x_corr_cf, *_ = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
 
-          u_c_samples = model.sample_latent(mu_c_inf, logvar_c_inf, m_samples)
-          u_d_samples = model.sample_latent(mu_d_inf, logvar_d_inf, m_samples)  
+      u_c_samples = model.sample_latent(mu_c_inf, logvar_c_inf, m_samples)
+      u_d_samples = model.sample_latent(mu_d_inf, logvar_d_inf, m_samples)  
 
-          ## ABDUCTION PASS
-          # To generate counterfactual outcome for IECO Ground Truth
-          # Using y=y to invoke adbuction encoders q(u|x, s, y)
-          mu_c_abd, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
-          
-          # Get Sociological Counterfactual Outcome Y'
-          _, _, _, _, _, _, _, y_full_cf_logits = model.decode(mu_d_abd, mu_c_abd, x_ind, s_bio, s_soc)
-          y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
+      ## ABDUCTION PASS
+      # To generate counterfactual outcome for IECO Ground Truth
+      # Using y=y to invoke adbuction encoders q(u|x, s, y)
+      mu_c_abd, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
+      
+      # Get Sociological Counterfactual Outcome Y'
+      _, _, _, _, _, _, _, y_full_cf_logits = model.decode(mu_d_abd, mu_c_abd, x_ind, s_bio, s_soc)
+      y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
 
-          # DATASETS CONSTRUCTION
-          # Counterfactual variables and outcomes
-          ref_index = batch_df.index.to_numpy()
-          batch_cf = pd.DataFrame(index=ref_index)
+      # DATASETS CONSTRUCTION
+      # Counterfactual variables and outcomes
+      ref_index = batch_df.index.to_numpy()
+      batch_cf = pd.DataFrame(index=ref_index)
 
-          # CF Outcomes and Reconstructions
-          batch_cf['y_full_cf_prob'] = y_full_cf_prob.cpu().numpy().flatten()
+      # CF Outcomes and Reconstructions
+      batch_cf['y_full_cf_prob'] = y_full_cf_prob.cpu().numpy().flatten()
 
-          # # x_desc_cf contains multiple features; map them back to names
-          for i, feature in enumerate(feature_mapping['desc']):
-              batch_cf[feature['name']] = x_desc_cf[:, i].cpu().numpy()
-          for i, feature in enumerate(feature_mapping['corr']):
-              batch_cf[feature['name']] = x_corr_cf[:, i].cpu().numpy()
+      # # x_desc_cf contains multiple features; map them back to names
+      for k, feature in enumerate(feature_mapping['desc']):
+          batch_cf[feature['name']] = x_desc_cf[:, k].cpu().numpy()
+      for k, feature in enumerate(feature_mapping['corr']):
+          batch_cf[feature['name']] = x_corr_cf[:, k].cpu().numpy()
 
-          all_counterfactuals.append(batch_cf)
+      all_counterfactuals.append(batch_cf)
 
-          # Latent variables 
-          u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c').reset_index(drop=True)   
-          u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d').reset_index(drop=True)   
-          batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True, suffixes=(None,'_dup')).drop(['patient_index_dup'], axis=1)
+      # Latent variables 
+      u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c').reset_index(drop=True)   
+      u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d').reset_index(drop=True)   
+      batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True, suffixes=(None,'_dup')).drop(['patient_index_dup'], axis=1)
 
-          all_latents.append(batch_latents)
-
+      all_latents.append(batch_latents)
 
   # Concatenate and reset index
   counterfactuals_df = pd.concat(all_counterfactuals)  

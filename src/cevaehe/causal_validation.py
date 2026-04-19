@@ -7,6 +7,7 @@ from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
 from sklearn.metrics import mean_squared_error, roc_auc_score, average_precision_score
 import torch
+from torch import nn
 
 from cevaehe.model import CEVAEHE
 from cevaehe.data_loader import make_bucketed_loader
@@ -303,16 +304,16 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
 
       y_cf_logits = y_bio_cf_logits if is_baseline else y_soc_cf_logits
-      y_cf_prob = torch.sigmoid(y_cf_logits)
+      y_cf_prob = nn.Sigmoid()(y_cf_logits)
 
-      y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
+      y_full_cf_prob = nn.Sigmoid()(y_full_cf_logits)
 
       # --- FACTUAL INFERENCE ---
       # Get the factual prediction
       mu_corr_inf, _, mu_desc_inf, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
       _, _, y_pred_inf_logits, *_= model.decode(mu_desc_inf, mu_corr_inf, x_ind, s_bio, s_soc)
 
-      y_pred_prob = torch.sigmoid(y_pred_inf_logits)
+      y_pred_prob = nn.Sigmoid()(y_pred_inf_logits)
 
       # --- SYNTHETIC COUNTERFACTUAL INFERENCE ---
       # Get the counterfactual prediction
@@ -324,7 +325,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       mu_corr_cf_inf, _, mu_desc_cf_inf, _ = model.encode(x_desc_syn, x_corr_syn, x_ind, s_bio_cf, s_soc_cf, y=None)
       _, _, y_pred_cf_inf_logits, *_= model.decode(mu_desc_cf_inf, mu_corr_cf_inf, x_ind, s_bio_cf, s_soc_cf)
 
-      y_pred_cf_prob = torch.sigmoid(y_pred_cf_inf_logits)
+      y_pred_cf_prob = nn.Sigmoid()(y_pred_cf_inf_logits)
 
       # --- STORE BATCH RESULTS ---
       all_sens.append(x_sens.cpu().numpy())
@@ -386,19 +387,21 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
 
   # IECO MACE
   stratified_ieco_mace = {}
+  stratified_total_mace = {}
   for v in np.unique(sens_np):
     group_mask = sens_np == v
-    group_ieco_mace, _ = calculate_ieco_mace(
+    group_ieco_mace, group_total_mace = calculate_ieco_mace(
       y_true_np[group_mask],
       y_cf_prob_np[group_mask], 
       y_pred_prob_np[group_mask], 
       y_pred_cf_prob_np[group_mask]
     )
     stratified_ieco_mace["ieco_mace_" + str(v)] = group_ieco_mace
-    logger.info(f'IECO MACE, GROUP {str(v)}: {group_ieco_mace}')
+    stratified_total_mace["total_mace_" + str(v)] = group_total_mace
+    logger.info(f'TOTAL MACE, GROUP {str(v)}: {group_total_mace}')
 
   ieco_mace, total_mace = calculate_ieco_mace(y_true_np, y_cf_prob_np, y_pred_prob_np, y_pred_cf_prob_np)
-  logger.info(f'IECO MACE: {ieco_mace}')
+  logger.info(f'TOTAL MACE: {ieco_mace}')
 
   # Utility: AUPRC
   roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
@@ -415,7 +418,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
     norm_f_desc_score = f_desc[f_name]['norm_score'] if f_desc.get(f_name, False) else np.nan
     norm_f_corr_score = f_corr[f_name]['norm_score'] if f_corr.get(f_name, False) else np.nan
     sensitivity = cf_sensitivity[f_name]['score'] if cf_sensitivity.get(f_name, False) else np.nan
-
 
     results.append({
       "iteration": iteration,
@@ -435,6 +437,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       "fidelity_scoring": f_desc[f_name]['score_type'] if f_desc.get(f_name, False) else f_corr[f_name]['score_type'],
       "desc_size": len(desc_features),
       "u_desc_dim": model.ud_dim
-    } | stratified_ieco_mace)
+    } | stratified_ieco_mace | stratified_total_mace)
     
   return results

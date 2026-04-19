@@ -191,7 +191,7 @@ def main():
       baseline_global_perf = calculate_performance_metrics(y_test, y_pred, y_pred_proba)
       baseline_global_ieco_mace, _ = calculate_ieco_mace(y_test, y_cf_test, y_pred_proba, y_cf_pred_proba)
       baseline_global_perf['ieco_mace'] = baseline_global_ieco_mace
-      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, y_cf_test, y_cf_pred_proba, X_test[x_sens_col[0]])
+      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_test, y_cf_pred_proba)
       baseline_metrics.append(baseline_global_perf | baseline_strat_perf)
 
       # FAIR MODELS PERF METRICS

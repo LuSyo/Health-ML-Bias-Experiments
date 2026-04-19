@@ -14,7 +14,7 @@ def calculate_performance_metrics(y_true, y_pred, y_prob):
         'brier_score': brier_score_loss(y_true, y_prob)
     }
 
-def stratified_perf(y_true, y_pred, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens):
+def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred_prob=None):
     group_0 = sens == 0
     group_1 = sens == 1
 
@@ -29,33 +29,37 @@ def stratified_perf(y_true, y_pred, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens
         y_pred_prob[group_1]
     )
 
-    ieco_mace_0, _ = calculate_ieco_mace(
-        y_true[group_0],
-        y_cf_prob[group_0],
-        y_pred_prob[group_0],
-        y_cf_pred_prob[group_0]
-    )
-    ieco_mace_1, _ = calculate_ieco_mace(
-        y_true[group_1],
-        y_cf_prob[group_1],
-        y_pred_prob[group_1],
-        y_cf_pred_prob[group_1]
-    )
-
-    return {  
+    strat_metrics = {  
         "accuracy_0": perf_metrics_0['accuracy'],
         "roc_auc_0": perf_metrics_0['roc_auc'],
         "fnr_0": perf_metrics_0['fnr'],
         "fpr_0": perf_metrics_0['fpr'],
         "brier_score_0": perf_metrics_0['brier_score'],
-        "ieco_mace_0": ieco_mace_0,
         "accuracy_1": perf_metrics_1['accuracy'],
         "roc_auc_1": perf_metrics_1['roc_auc'],
         "fnr_1": perf_metrics_1['fnr'],
         "fpr_1": perf_metrics_1['fpr'],
-        "brier_score_1": perf_metrics_1['brier_score'],
-        "ieco_mace_1": ieco_mace_1,
+        "brier_score_1": perf_metrics_1['brier_score']
     }
+
+    if y_cf_prob and y_cf_pred_prob:
+        ieco_mace_0, _ = calculate_ieco_mace(
+            y_true[group_0],
+            y_cf_prob[group_0],
+            y_pred_prob[group_0],
+            y_cf_pred_prob[group_0]
+        )
+        ieco_mace_1, _ = calculate_ieco_mace(
+            y_true[group_1],
+            y_cf_prob[group_1],
+            y_pred_prob[group_1],
+            y_cf_pred_prob[group_1]
+        )
+        strat_metrics['ieco_mace_0'] = ieco_mace_0
+        strat_metrics['ieco_mace_1'] = ieco_mace_1
+
+
+    return strat_metrics
 
 def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, patient_index):
     test_results = pd.DataFrame({

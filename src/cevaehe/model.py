@@ -178,7 +178,7 @@ class CEVAEHE(nn.Module):
           processed.append(col.unsqueeze(1))
       return torch.cat(processed, dim=1)
     else:
-      return None
+      return torch.empty((x.size(0), 0))
 
   def encode(self, x_desc, x_corr, x_ind, sens_bio, sens_soc, y=None):
     '''

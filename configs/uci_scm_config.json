@@ -2,16 +2,16 @@
   "ind": [
         {"name":"fbs","type":"binary"}], 
   "desc": [
-        {"name":"age","type":"continuous"},
-        {"name":"ang","type":"binary"}],
-  "corr": [
         {"name":"bp","type":"continuous"},
+        {"name":"st","type":"continuous"}],
+  "corr": [
+        {"name":"age","type":"continuous"},
+        {"name":"ang","type":"binary"},
         {"name":"chol","type":"continuous"},
         {"name":"cp","type":"categorical", "n":4},
         {"name":"ecg","type":"categorical","n":3},
         {"name":"mhr","type":"continuous"},
-        {"name":"slope","type":"categorical", "n":3},
-        {"name":"st","type":"continuous"}], 
+        {"name":"slope","type":"categorical", "n":3}], 
   "sens": [{"name":"sex","type":"binary"}], 
   "target": {"name":"cvd","type":"binary"} 
 }
