@@ -32,17 +32,19 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred
     strat_metrics = {  
         "accuracy_0": perf_metrics_0['accuracy'],
         "roc_auc_0": perf_metrics_0['roc_auc'],
+        "auprc_0": perf_metrics_0['auprc'],
         "fnr_0": perf_metrics_0['fnr'],
         "fpr_0": perf_metrics_0['fpr'],
         "brier_score_0": perf_metrics_0['brier_score'],
         "accuracy_1": perf_metrics_1['accuracy'],
         "roc_auc_1": perf_metrics_1['roc_auc'],
+        "auprc_1": perf_metrics_1['auprc'],
         "fnr_1": perf_metrics_1['fnr'],
         "fpr_1": perf_metrics_1['fpr'],
         "brier_score_1": perf_metrics_1['brier_score']
     }
 
-    if y_cf_prob and y_cf_pred_prob:
+    if y_cf_prob is not None and y_cf_pred_prob is not None:
         ieco_mace_0, _ = calculate_ieco_mace(
             y_true[group_0],
             y_cf_prob[group_0],
@@ -93,9 +95,9 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, p
         avg_results['y_true'],
         y_pred_avg,
         avg_results['y_pred_prob'],
+        avg_results['sens'],
         avg_results['y_cf_prob'],
-        avg_results['y_cf_pred_prob'],
-        avg_results['sens']
+        avg_results['y_cf_pred_prob']
     )
 
     grouped_roc_curve = get_grouped_roc_curve(
