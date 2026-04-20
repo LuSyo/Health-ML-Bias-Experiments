@@ -1,9 +1,8 @@
 import pandas as pd
-import numpy as np
 import os
 import gc
 import random
-import json
+import math
 from sklearn.utils import resample
 
 from config import Config
@@ -22,8 +21,15 @@ def main():
   results_path = f'{args.root_dir}{Config.RESULTS_DIR}{args.exp_name}'
   os.makedirs(results_path, exist_ok=True)
   
+  # Set up the param search space and how it will be sampled
   search_space = load_config(args.param_space)
-  n_iterations = args.param_iter
+  keys = list(search_space.keys())
+  values_lists = [search_space[k] for k in keys]
+  dimensions = [len(v) for v in values_lists]
+  n_configs = math.prod(dimensions)
+
+  n_iterations = min(args.param_iter, n_configs)
+  selected_indices = random.sample(range(n_configs), n_iterations)
 
   # Initialise logger
   logger = setup_logger(Config.LOG_DIR, args.exp_name)
@@ -53,22 +59,20 @@ def main():
   # Load the feature mapping
   feature_mapping = load_config(args.mapping)
 
-  for i in range(n_iterations):
+  for i, idx in enumerate(selected_indices):
     logger.info("="*15)
 
-    current_params = {k: random.choice(v) for k, v in search_space.items()}
+    current_params = {}
+    temp_idx = idx
+
+    for key in reversed(keys):
+      vals = search_space[key]
+      n = len(vals)
+      current_params[key] = vals[temp_idx % n]
+      temp_idx //= n
 
     for param, value in current_params.items():
       setattr(args, param, value)
-
-    # data_loader_seed = args.seed + i if args.cross_val > 1 else args.seed
-      
-    # logger.info(f'Corr. recon. loss alpha: {args.corr_a}')
-    # logger.info(f'Desc. recon. loss alpha: {args.desc_a}')
-    # logger.info(f'Prediction loss alpha: {args.pred_a}')
-    # logger.info(f'Fair loss beta: {args.fair_b}')
-    # logger.info(f'TC loss beta: {args.tc_b}')
-
 
     def finetuning_run(run_dataset, run_id):
       # Data loaders
