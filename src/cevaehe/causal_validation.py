@@ -28,8 +28,9 @@ def run_sens_classifier(features, target_sens, seed=4):
   '''
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   audit_rf = RandomForestClassifier(
-      n_estimators=100,
-      max_depth=5,
+      n_estimators=300,
+      min_samples_leaf=5,
+      max_features=features.shape[1],
       random_state=seed
   )
   scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='roc_auc')
