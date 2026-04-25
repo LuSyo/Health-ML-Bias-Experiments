@@ -1,0 +1,17 @@
+{
+  "X": [
+    {"name":"age","type":"continuous"},
+    {"name":"genetic_marker","type":"categorical", "n":3},
+    {"name":"symptom_1_obs","type":"continuous"},
+    {"name":"symptom_2","type":"categorical", "n":3},
+    {"name":"symptom_3_obs","type":"binary"},
+    {"name":"symptom_4","type":"categorical", "n":3},
+    {"name":"biomarker_1_obs","type":"continuous"},
+    {"name":"biomarker_2","type":"continuous"},
+    {"name":"biomarker_3","type":"continuous"},
+    {"name":"procedure","type":"binary"}
+  ],
+  "ind": [],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"outcome_Y","type":"binary"} 
+}
