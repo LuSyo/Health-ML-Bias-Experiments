@@ -336,7 +336,7 @@ class CEVAEHE(nn.Module):
 
   def reconstruction_loss(self, v_pred, v, v_meta):
     '''
-      Calculates the total reconstruction loss for the given feature bucket,\
+      Calculates the total reconstruction loss for the given feature pathway,\
        matching each feature type to the correct loss function
     '''
     if len(v_meta) == 0:
@@ -404,6 +404,9 @@ class CEVAEHE(nn.Module):
     return kl_div / mu1.size(0)
   
   def tc_loss(self, u_desc, s_soc, u_desc_2, s_soc_2):
+    """
+    Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
+    """
     sample_size = u_desc.size(0)
 
     # Discriminator at chance level
@@ -430,6 +433,9 @@ class CEVAEHE(nn.Module):
     return tc_L
   
   def disc_loss(self, u_desc, s_soc, u_desc_2, s_soc_2):
+    """
+    Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
+    """
     sample_size = u_desc.size(0)
 
     # Discriminator prediction targets
@@ -489,40 +495,6 @@ class CEVAEHE(nn.Module):
     u_redun_L = nn.BCEWithLogitsLoss()(y_permuted_logits, y_pred_prob.detach())
 
     return u_redun_L
-
-  def fair_loss(self, y_true, y_cf, y_pred, y_pred_cf):
-    '''
-      Fairness loss, implements the Individual Equalised Counterfactual Odds criteria for counterfactual fairness:
-      An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. And they should receive a different prediction if they have a different outcome. (=> equality of error rates across counterfactuals)
-
-      Inputs:
-        - y_true: The factual actual outcome (as binary)
-        - y_cf: The counterfactual actual outcome (as probabilities)
-        - y_pred: The factual prediction (as probabilities)
-        - y_pred_cf: The counterfactual prediction (as probabilities)
-
-      Outputs:
-        fair_L: the mean squared error (MSE) between factual and counterfactual prediction, conditioned on equal outcomes, added to the MSE between opposite factual and counterfactual, conditioned on opposite outcomes
-    '''
-    y_cf_hard = (y_cf > 0.5).float()
-    equal_outcome = y_cf_hard == y_true
-    opp_outcome = y_cf_hard == 1 - y_true
-
-    if not equal_outcome.any():
-      fair_L_equal = torch.tensor(0.0, device=self.device, requires_grad=True)
-    else:
-      y_pred_equal = y_pred[equal_outcome]
-      y_pred_cf_equal = y_pred_cf[equal_outcome]
-      fair_L_equal = nn.MSELoss()(y_pred_cf_equal, y_pred_equal)
-
-    if not opp_outcome.any():
-        fair_L_opp = torch.tensor(0.0, device=self.device, requires_grad=True)
-    else:
-      y_pred_opp = y_pred[opp_outcome]
-      y_pred_cf_opp = y_pred_cf[opp_outcome]
-      fair_L_opp = nn.MSELoss()(y_pred_cf_opp, 1 - y_pred_opp)
-
-    return fair_L_equal + fair_L_opp
   
   def calculate_loss(self, x_ind, x_desc, x_corr, x_sens, y, 
                      x_ind_2, x_desc_2, x_sens_2, y_2,
@@ -539,11 +511,12 @@ class CEVAEHE(nn.Module):
         - y_recon_L: The outcome recosntruction loss (in adbuction)
         - The effective KL loss, including parameterised scaling factor (in adbuction)
         - The effective TC loss, including parameterised scaling factor (in adbuction)
-        - The effective Fair loss, including parameterised scaling factor (in inference)
+        - The effective Latent CF Invariance loss, including parameterised scaling factor (cycle invariance)
         - The effective distillation loss between adbuction and inference encoders, including parameterised scaling factor
         - y_pred_prob: The predicted outcome (in inference, as probabilities)
         - mu_desc, mu_corr: The abducted latent variables (mean)
         - mu_desc_inf, mu_corr_inf: The inferred latent variables (mean)
+        - mu_desc_2: The abducted latent on the permuted dataset (mean)
 
     '''
 
@@ -594,7 +567,7 @@ class CEVAEHE(nn.Module):
     u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
     tc_L = self.tc_loss(u_desc, s_soc, u_desc_2, x_sens_2)
 
-    # ---- Latent Counterfactual Invariance loss 
+    # ---- Latent Counterfactual Invariance loss ----
     # for a flipped Sociological sensitive attribute
     # We keep the Biological sensitive attribute constant
     s_soc_flipped = 1 - s_soc
@@ -602,17 +575,20 @@ class CEVAEHE(nn.Module):
 
     _, _, mu_desc_cf, logvar_desc_cf = self.encode(
         x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y_soc_cf_pred) # Cycle invariance
+
     # _, _, mu_desc_cf, logvar_desc_cf = self.encode(
     #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y) # Adbuction invariance
+
     # _, _, mu_desc_cf_inf, logvar_desc_cf_inf = self.encode(
     #     x_desc, x_corr, x_ind, s_bio, s_soc_flipped, y=None) # Inference invariance
     
     cf_invar_L = self.kl_div(mu_desc_cf, logvar_desc_cf, mu_desc, logvar_desc)\
                 + self.kl_div(mu_desc, logvar_desc, mu_desc_cf, logvar_desc_cf)
+
     # cf_invar_L = self.kl_div(mu_desc_cf_inf, logvar_desc_cf_inf, mu_desc, logvar_desc)\
     #             + self.kl_div(mu_desc_inf, logvar_desc_inf, mu_desc_cf_inf, logvar_desc_cf_inf)
 
-    # ---- Latent Redundancy Loss
+    # ---- Latent Redundancy Loss ----
     u_redun_L = self.u_redundancy_loss(u_desc, u_corr, x_ind, s_soc, s_bio, y_pred_prob)
 
     # ---- Total VAE obective
@@ -621,11 +597,11 @@ class CEVAEHE(nn.Module):
         - u_ind_weight*u_redun_L
 
 
-    return total_vae_loss, desc_recon_L, corr_recon_L, y_recon_L, \
+    return total_vae_loss,\
+      desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*cf_invar_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
-        y_pred_prob.detach(), \
-           mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach(), \
-           mu_desc_2.detach()
+      y_pred_prob.detach(), \
+      mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach(), mu_desc_2.detach()
 
 class EarlyStopping:
   def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10):
