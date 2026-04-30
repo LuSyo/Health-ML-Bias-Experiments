@@ -4,57 +4,109 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def sample_stratified_class(population, target_n, strat_cols, proportions, class_val, seed):
+def proportion_preserving_sampling(df, n_train, n_test, seed=42):
+  """
+  Sub-samples the population while strictly preserving the joint distribution of S, age_bin, and outcome_Y.
+  """
+  df['age_bin'] = pd.qcut(df['age'], q=10, labels=False)
+  
+  strat_cols = ['S', 'age_bin', 'outcome_Y']
+  
+  proportions = df.groupby(strat_cols).size() / len(df)
+  
+  test_subsets = []
+  train_subsets = []
+  test_ratio = n_test / (n_test + n_train)
+
+  grouped_df = df.groupby(strat_cols)
+  
+  # Sample from each group according to its population weight
+  for strata, prop in proportions.items():
+    count_test = int(np.ceil(prop * n_test))
+    count_train = int(np.ceil(prop * n_train))
+
+    try:
+      strata_df = grouped_df.get_group(strata)
+    except KeyError:
+      continue
+    
+    max_test = int(np.floor(len(strata_df)*test_ratio))
+    
+    test_subset = strata_df.sample(n=min(count_test, max_test), replace=False, random_state=seed)
+    test_subsets.append(test_subset)
+
+    remaining_strata = strata_df.drop(test_subset.index)
+    train_subset = strata_df.sample(n=min(count_train, len(remaining_strata)), replace=False, random_state=seed)
+    train_subsets.append(train_subset)
+
+  train_out = pd.concat(train_subsets) if train_subsets else pd.DataFrame(columns=grouped_df.columns)
+  test_out = pd.concat(test_subsets) if test_subsets else pd.DataFrame(columns=grouped_df.columns)
+  
+  return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
+
+def sample_stratified_class(population, n_train, n_test, strat_cols, proportions, class_val, seed):
   """
   Samples a class by matching given strata proportions and target class sampling size
   """
   class_df = population[population['outcome_Y'] == class_val]
-  sampled_subsets = []
+  test_subsets = []
+  train_subsets = []
+  test_ratio = n_test / (n_test + n_train)
 
   grouped_class = class_df.groupby(strat_cols)
 
   for strata, prop in proportions.items():
-    n_strata = int(np.ceil(prop * target_n))
-
-    if n_strata == 0:
-      continue
+    count_test = int(np.round(prop * n_test))
+    count_train = int(np.round(prop * n_train))
 
     try:
       strata_df = grouped_class.get_group(strata)
     except KeyError:
-      strata_df = pd.DataFrame(columns=class_df.columns)
+      continue
 
-    subset = strata_df.sample(n=min(n_strata, len(strata_df)), replace=False, random_state=seed)
+    max_test = int(np.floor(len(strata_df)*test_ratio))
+    
+    test_subset = strata_df.sample(n=min(count_test, max_test), replace=False, random_state=seed)
+    test_subsets.append(test_subset)
 
-    sampled_subsets.append(subset)
+    remaining_strata = strata_df.drop(test_subset.index)
+    train_subset = strata_df.sample(n=min(count_train, len(remaining_strata)), replace=False, random_state=seed)
+    train_subsets.append(train_subset)
+
+  train_out = pd.concat(train_subsets) if train_subsets else pd.DataFrame(columns=class_df.columns)
+  test_out = pd.concat(test_subsets) if test_subsets else pd.DataFrame(columns=class_df.columns)
   
-  return pd.concat(sampled_subsets)
+  return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
 
-def class_balanced_sampling(df, n_samples, seed):
+def class_balanced_sampling(df, n_train, n_test, seed):
   df['age_bin'] = pd.qcut(df['age'], q=10, labels=False)
 
   strat_cols = ['S', 'age_bin']
 
-  n_per_class = n_samples // 2
+  n_train_per_class = n_train // 2
+  n_test_per_class = n_test // 2
 
   strat_proportions = df.groupby(strat_cols).size() / len(df)
 
-  cases_sampled = sample_stratified_class(df, n_per_class, strat_cols, strat_proportions, class_val=1, seed=seed)
-  controls_sampled = sample_stratified_class(df, n_per_class, strat_cols, strat_proportions, class_val=0, seed=seed)
+  train_cases_sampled, test_cases_sampled = sample_stratified_class(df, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=1, seed=seed)
+  train_controls_sampled, test_controls_sampled, = sample_stratified_class(df, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=0, seed=seed)
 
-  cases_sampled.drop(columns=['age_bin'], inplace=True)
-  controls_sampled.drop(columns=['age_bin'], inplace=True)
+  train_cases_sampled.drop(columns=['age_bin'], inplace=True)
+  test_cases_sampled.drop(columns=['age_bin'], inplace=True)
+  train_controls_sampled.drop(columns=['age_bin'], inplace=True)
+  test_controls_sampled.drop(columns=['age_bin'], inplace=True)
   df.drop(columns=['age_bin'], inplace=True)
 
-  return pd.concat([cases_sampled, controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True)
+  return pd.concat([train_cases_sampled, train_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True), pd.concat([test_cases_sampled, test_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True)
 
-def simulate_selection_bias(df, n_target=3000, seed=4):
+def simulate_selection_bias(df, n_train, n_test, seed=4):
   """
   Sub-samples the population to introduce selection bias while forcing outcome Y balance.
   Minority participants (S=0) are more likely to be selected if they are younger.
   """
   np.random.seed(seed)
-  n_per_class = n_target // 2
+
+  test_ratio = n_test / (n_test + n_train)
   
   # Standardize age to create stable selection weights
   age_std = (df['age'] - df['age'].mean()) / df['age'].std()
@@ -62,29 +114,33 @@ def simulate_selection_bias(df, n_target=3000, seed=4):
   # Define selection weights
   # For S=1: Selection probability increases exponentially with age
   # For S=0: Selection probability decreases slightly with age
-  weights = np.ones(len(df))
-  
-  mask_0 = (df['S'] == 0)
-  mask_1 = (df['S'] == 1)
-  
-  # Weighting function: w = exp(beta * age_std)
-  # beta=1.0 creates a strong bias toward older individuals in the majority group
-  weights[mask_1] = np.exp(0.3 * age_std[mask_1])
-  weights[mask_0] = np.exp(-0.1 * age_std[mask_0])
+  weights = pd.Series(np.ones(len(df)), index=df.index)
+  weights[df['S'] == 1] = np.exp(0.3 * age_std[df['S'] == 1])
+  weights[df['S'] == 0] = np.exp(-0.1 * age_std[df['S'] == 0])
 
-  def weighted_sample(sub_df, count):
+  def get_balanced_weighted_sample(pool, count, max_ratio=1):
   # Extract weights corresponding to these specific indices
-    sub_weights = weights[sub_df.index]
+    count_per_class = count // 2
+    sampled = []
+
+    for label in [0, 1]:
+      class_df = pool[pool['outcome_Y'] == label]
+      n_to_sample = int(np.floor(min(len(class_df) * max_ratio, count_per_class)))
+            
+      if n_to_sample > 0:
+        sample = class_df.sample(n=n_to_sample, 
+                                weights=weights[class_df.index], 
+                                random_state=seed)
+        sampled.append(sample)
     
-    return sub_df.sample(n=min(len(sub_df), count), replace=False, weights=sub_weights, random_state=seed)
+    return pd.concat(sampled)
 
-  df_cases = df[df['outcome_Y'] == 1].copy()
-  df_controls = df[df['outcome_Y'] == 0].copy()
+  test_set = get_balanced_weighted_sample(df, n_test, max_ratio=test_ratio)
+  
+  remaining_df = df.drop(test_set.index)
+  train_set = get_balanced_weighted_sample(remaining_df, n_train)
 
-  cases_sampled = weighted_sample(df_cases, n_per_class)
-  controls_sampled = weighted_sample(df_controls, n_per_class)
-
-  return pd.concat([cases_sampled, controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True)
+  return train_set.reset_index(drop=True), test_set.reset_index(drop=True)
 
 
 def scale_dataset(df, norm_features, skewed_features):
