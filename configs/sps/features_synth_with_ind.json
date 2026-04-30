@@ -1,0 +1,119 @@
+{
+  "X": [
+    {"name":"genetic_marker_1","type":"categorical", "n":3},
+    {"name":"symptom_1_obs","type":"continuous"},
+    {"name":"symptom_3","type":"binary"},
+    {"name":"symptom_4","type":"categorical", "n":3},
+    {"name":"biomarker_1_obs","type":"continuous"},
+    {"name":"biomarker_3","type":"continuous"},
+    {"name":"procedure","type":"binary"}
+  ],
+  "ind": [
+    {"name":"age","type":"continuous"},
+    {"name":"genetic_marker_2","type":"binary"},
+    {"name":"symptom_2","type":"categorical", "n":3},
+    {"name":"biomarker_2","type":"continuous"}
+  ],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"outcome_Y","type":"binary"},
+  "targeted_pathways":[
+    {
+      "name": "FULL DESC",
+      "corr": [
+      ],
+      "desc": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"},
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "ORIGINAL SCM",
+      "desc": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "corr": [
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "ORIGINAL SCM - symptom 1",
+      "desc": [
+        {"name":"symptom_3","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "corr": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "ORIGINAL SCM - symptom 3",
+      "desc": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "corr": [
+        {"name":"symptom_3","type":"binary"},
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "ORIGINAL SCM - biomarker 1",
+      "desc": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3","type":"binary"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "corr": [
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "ORIGINAL SCM - procedure",
+      "desc": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"}
+      ],
+      "corr": [
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"procedure","type":"binary"},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    },
+    {
+      "name": "INVERTED SCM",
+      "corr": [
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "desc": [
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"}
+      ]
+    }
+  ]
+}

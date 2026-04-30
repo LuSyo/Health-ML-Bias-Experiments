@@ -1,0 +1,38 @@
+{
+  "X": [
+    {"name":"age","type":"continuous"},
+    {"name":"genetic_marker_1","type":"categorical", "n":3},
+    {"name":"genetic_marker_2","type":"binary"},
+    {"name":"symptom_1_obs","type":"continuous"},
+    {"name":"symptom_2","type":"categorical", "n":3},
+    {"name":"symptom_3_obs","type":"binary"},
+    {"name":"symptom_4","type":"categorical", "n":3},
+    {"name":"biomarker_1_obs","type":"continuous"},
+    {"name":"biomarker_2","type":"continuous"},
+    {"name":"biomarker_3","type":"continuous"},
+    {"name":"procedure","type":"binary"}
+  ],
+  "ind": [],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"outcome_Y","type":"binary"},
+  "targeted_pathways":[
+    {
+      "name": "ORIGINAL SCM",
+      "desc": [
+        {"name":"age","type":"continuous"},
+        {"name":"symptom_1_obs","type":"continuous"},
+        {"name":"symptom_3_obs","type":"binary"},
+        {"name":"biomarker_1_obs","type":"continuous"},
+        {"name":"procedure","type":"binary"}
+      ],
+      "corr": [
+        {"name":"genetic_marker_1","type":"categorical", "n":3},
+        {"name":"symptom_4","type":"categorical", "n":3},
+        {"name":"biomarker_3","type":"continuous"},
+        {"name":"genetic_marker_2","type":"binary"},
+        {"name":"symptom_2","type":"categorical", "n":3},
+        {"name":"biomarker_2","type":"continuous"}
+      ]
+    }
+  ]
+}

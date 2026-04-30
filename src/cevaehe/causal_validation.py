@@ -179,8 +179,42 @@ def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
 
   return fidelity_scores
 
+def _get_config_key(desc_list):
+  """Generates a unique, order-independent key for a pathway configuration."""
+  return tuple(sorted([f['name'] if isinstance(f, dict) else f for f in desc_list]))
 
-def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger, args):
+def _audit_pathway_config(dataset, mapping, iteration, all_features, logger, args):
+  # 1. Data loaders
+  train_loader, val_loader, _ \
+    = make_bucketed_loader(dataset, mapping, val_size=0.3,
+                            test_size=0, batch_size=args.batch_size, seed=args.seed)
+  
+  # 2. Initialize Model with current SCM
+  model = CEVAEHE(
+      ind_meta=mapping['ind'], 
+      desc_meta=mapping['desc'], 
+      corr_meta=mapping['corr'], 
+      sens_meta=mapping['sens'], 
+      args=args
+  ).to(args.device)
+
+  logger.info(f'U_corr dimension: {model.uc_dim}')
+  logger.info(f'U_desc dimension: {model.ud_dim}')
+
+  # 3. Lite train model
+  lite_train_ceveahe(
+      model,
+      train_loader,
+      args.sps_epochs,
+      logger,
+      args
+  )
+
+  # 4. return metrics for this causal model
+  return sps_test_ceveahe(model, val_loader, all_features, mapping['desc'], 
+                          iteration, logger, args)
+
+def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   """
   Stochastic pathway sensitivity (SPS) audit
   Iteratively re-partition features into Xdesc and Xcorr to test causal fidelity
@@ -192,6 +226,9 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
 
   features = feature_mapping['X']
 
+  targeted_pathways = feature_mapping.get('targeted_pathways', [])
+  seen_keys = set()
+
   # establish baseline with all features in Xcorr
   baseline_mapping = {
     'desc': [],
@@ -200,32 +237,29 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
     'sens': feature_mapping['sens'],
     'target': feature_mapping['target']
   }
+  baseline_key = _get_config_key([])
+  seen_keys.add(baseline_key)
 
-  train_loader, val_loader, _ \
-      = make_bucketed_loader(dataset, baseline_mapping, val_size=0.3,
-                              test_size=0, batch_size=args.batch_size, seed=args.seed)
-    
-  model = CEVAEHE(
-    ind_meta=baseline_mapping['ind'], 
-    desc_meta=baseline_mapping['desc'], 
-    corr_meta=baseline_mapping['corr'], 
-    sens_meta=baseline_mapping['sens'], 
-    args=args
-  ).to(args.device)
+  baseline_results = _audit_pathway_config(dataset, baseline_mapping, -1, features, logger, args)
 
-  lite_train_ceveahe(
-    model,
-    train_loader,
-    lite_epochs,
-    logger,
-    args
-  )
+  # TARGETED PATHWAYS
+  for i, tp in enumerate(targeted_pathways):
+    logger.info(f"Running targeted pathway: {tp.get('name', f"#{i}")}")
 
-  baseline_results = sps_test_ceveahe(model, val_loader, features, [], -1,
-                                         logger, args)
+    current_mapping = {
+      'desc': tp["desc"],
+      'corr': tp["corr"],
+      'ind': feature_mapping['ind'],
+      'sens': feature_mapping['sens'],
+      'target': feature_mapping['target']
+    }
+
+    tp_results = _audit_pathway_config(dataset, current_mapping, f"targeted_{i}", features, logger, args)
+    results.extend(tp_results)
+    seen_keys.add(_get_config_key(tp['desc']))
   
-  for i in range(iterations):
-    logger.info(f"> Iteration {i+1}/{iterations}")
+  for i in range(args.sps_iter):
+    logger.info(f"> Iteration {i+1}/{args.sps_iter}")
     
     # 1. Randomly partition features
     # We ensure at least one feature remains in each bucket
@@ -234,6 +268,12 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
     
     current_desc = shuffled[:split_point]
     current_corr = shuffled[split_point:]
+
+    # Skip the config if already seen
+    current_key = _get_config_key(current_desc)
+    if current_key in seen_keys:
+      logger.info(f"Skipping redundant config (iteration {i+1} attempt)")
+      continue
 
     # Construct the current mapping
     current_mapping = {
@@ -244,37 +284,10 @@ def run_sps_bootstrap(dataset, feature_mapping, iterations, lite_epochs, logger,
       'target': feature_mapping['target']
     }
 
-    # Data loaders
-    train_loader, val_loader, _ \
-      = make_bucketed_loader(dataset, current_mapping, val_size=0.3,
-                              test_size=0, batch_size=args.batch_size, seed=args.seed)
-    
-    # 2. Initialize Model with current SCM
-    model = CEVAEHE(
-        ind_meta=current_mapping['ind'], 
-        desc_meta=current_mapping['desc'], 
-        corr_meta=current_mapping['corr'], 
-        sens_meta=current_mapping['sens'], 
-        args=args
-    ).to(args.device)
-
-    logger.info(f'U_corr dimension: {model.uc_dim}')
-    logger.info(f'U_desc dimension: {model.ud_dim}')
-
-    # 3. Lite train model
-    lite_train_ceveahe(
-        model,
-        train_loader,
-        lite_epochs,
-        logger,
-        args
-    )
-
-    # 4. Measure metrics for this causal model
-    iteration_results = sps_test_ceveahe(model, val_loader, features, current_desc, i,
-                                         logger, args)
+    iteration_results = _audit_pathway_config(dataset, current_mapping, i, features, logger, args)
 
     results.extend(iteration_results)
+    seen_keys.add(current_key)  
           
   return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
