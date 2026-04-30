@@ -169,16 +169,18 @@ class CEVAEHE(nn.Module):
       Processes the input features by applying embeddings to the categorical columns
     '''
     processed = []
-    if len(x_meta) > 0 :
-      for i, feature in enumerate(x_meta):
-        col = x[:, i]
-        if feature['type'] == 'categorical':
-          processed.append(self.embeddings[feature['name']](col.long()))
-        else:
-          processed.append(col.unsqueeze(1))
-      return torch.cat(processed, dim=1)
-    else:
-      return torch.empty((x.size(0), 0))
+
+    if x is None or len(x_meta) == 0:
+      batch_size = x.size(0) if x is not None else 0
+      return torch.empty((batch_size, 0), device=self.device)
+
+    for i, feature in enumerate(x_meta):
+      col = x[:, i]
+      if feature['type'] == 'categorical':
+        processed.append(self.embeddings[feature['name']](col.long()))
+      else:
+        processed.append(col.unsqueeze(1))
+    return torch.cat(processed, dim=1)
 
   def encode(self, x_desc, x_corr, x_ind, sens_bio, sens_soc, y=None):
     '''
