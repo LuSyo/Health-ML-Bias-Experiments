@@ -46,14 +46,15 @@ def main():
   logger.info('='*30)
 
   try:
-    # Load the dataset
-    dataset = pd.read_csv(Config.DATA_DIR + args.data)
+    # Load the datasets
+    training_dataset = pd.read_csv(Config.DATA_DIR + args.training_data)
+    test_dataset = pd.read_csv(Config.DATA_DIR + args.test_data)
 
     # Load the feature mapping
     feature_mapping = load_config(args.mapping)
 
     # Data loaders
-    train_loader, val_loader, test_loader = make_bucketed_loader(dataset, feature_mapping,
+    train_loader, val_loader, test_loader = make_bucketed_loader(training_dataset, feature_mapping,
                                                                  test_size=0.2,
                                                                  batch_size=args.batch_size, seed=args.seed)
 
@@ -117,7 +118,8 @@ def main():
     logger.info('Saving latent and counterfactual datasets...')
     datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
     os.makedirs(datasets_path, exist_ok=True)
-    counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, dataset, feature_mapping, args)
+
+    counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
     counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
     latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
 

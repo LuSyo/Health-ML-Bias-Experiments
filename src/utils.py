@@ -20,6 +20,8 @@ def parse_args():
   parser.add_argument('--device', type=str, default=Config.DEVICE)
   parser.add_argument('--seed', type=int, default=Config.SEED)
   parser.add_argument('--data', type=str)
+  parser.add_argument('--training_data', type=str)
+  parser.add_argument('--test_data', type=str)
   parser.add_argument('--mapping', type=str)
   parser.add_argument('--cevaehe', type=str, default=None)
   parser.add_argument('--cf_dataset', type=str, default=None)

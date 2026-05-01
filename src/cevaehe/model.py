@@ -264,6 +264,8 @@ class CEVAEHE(nn.Module):
         - y_bio_cf_logits: the decoded bio-counterfactual outcome (as logits)
         - y_full_cf_logits: the decoded full-counterfactual outcome (as logits)
     '''
+    batch_size = sens_bio.size(0)
+
     # Process raw tensors
     x_ind_p = self._process_features(x_ind, self.ind_meta)
     sens_bio_p = self._process_features(sens_bio, self.sens_meta)
@@ -294,7 +296,7 @@ class CEVAEHE(nn.Module):
     x_desc_cf_logits = {feature['name']: 
                         self.decoder_desc[feature['name']](input_desc_cf)\
                    for feature in self.desc_meta}
-    x_desc_cf = self.hard_reconstruct_features(x_desc_cf_logits, self.desc_meta)
+    x_desc_cf = self.hard_reconstruct_features(x_desc_cf_logits, self.desc_meta, batch_size)
 
     input_target_soc_cf = torch.cat([t for t in (u_desc, u_corr, x_ind_p, 
                                  sens_bio_p, sens_soc_cf_p) 
@@ -308,7 +310,7 @@ class CEVAEHE(nn.Module):
     x_corr_cf_logits = {feature['name']: 
                         self.decoder_corr[feature['name']](input_corr_cf)\
                    for feature in self.corr_meta}
-    x_corr_cf = self.hard_reconstruct_features(x_corr_cf_logits, self.corr_meta)
+    x_corr_cf = self.hard_reconstruct_features(x_corr_cf_logits, self.corr_meta, batch_size)
 
     input_target_bio_cf = torch.cat([t for t in (u_desc, u_corr, x_ind_p, 
                                  sens_bio_cf_p, sens_soc_p) 
@@ -359,12 +361,13 @@ class CEVAEHE(nn.Module):
 
     return total_recon_L / sample_size
   
-  def hard_reconstruct_features(self, v_pred, v_meta):
+  def hard_reconstruct_features(self, v_pred, v_meta, batch_size):
     '''
       Reconstructs the feature bucket from its logits
     '''
+    
     if len(v_meta) == 0:
-      return None
+      return torch.empty((batch_size, 0), device=self.device)
     
     reconstructed = []
     for i, feature in enumerate(v_meta):

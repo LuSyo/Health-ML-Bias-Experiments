@@ -16,6 +16,8 @@ def test_ceveahe(model, test_loader, logger, args):
   with torch.no_grad():
     for batch in test_loader:
       x_ind, x_desc, x_corr, x_sens, y = [t.to(device) for t in batch[:5]]
+      
+      batch_size = x_sens.size(0)
 
       s_bio = x_sens.clone()
       s_soc = x_sens.clone()
@@ -27,7 +29,7 @@ def test_ceveahe(model, test_loader, logger, args):
       # from mean Ucorr and Udesc
       x_desc_pred_logits, _, y_pred_logits, x_desc_cf, _, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
-      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
+      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta, batch_size)
       
       # Soc. Counterfactual pass to adbuct the counterfactual Udesc
       # (for invariance test)
@@ -75,49 +77,78 @@ def test_ceveahe(model, test_loader, logger, args):
 
   ## Verify invariance of Udesc by Sens
   # 1. Sex classifier performance
-  u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
-    np.stack(cast(List[Any], test_outputs['u_desc'])),
-    test_outputs['sens'],
-    args.seed
-  )
+  if len(model.desc_meta) > 0:
+    u_desc_sens_auc_mean, u_desc_sens_auc_std = run_sens_classifier(
+      np.stack(cast(List[Any], test_outputs['u_desc'])),
+      test_outputs['sens'],
+      args.seed
+    )
 
-  x_desc_sens_auc_mean, x_desc_sens_auc_std = run_sens_classifier(
-    np.stack(cast(List[Any], test_outputs['x_desc'])),
-    test_outputs['sens'],
-    args.seed
-  )
+    x_desc_sens_auc_mean, x_desc_sens_auc_std = run_sens_classifier(
+      np.stack(cast(List[Any], test_outputs['x_desc'])),
+      test_outputs['sens'],
+      args.seed
+    )
 
-  u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
-    np.stack(cast(List[Any], test_outputs['u_corr'])),
-    test_outputs['sens'],
-    args.seed
-  )
+    # 2. Counterfactual invariance
+    u_desc_recon_loss = latent_recon_loss(
+      np.stack(cast(List[Any], test_outputs['u_desc'])), 
+      np.stack(cast(List[Any], test_outputs['u_desc_cf'])))
 
-  x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
-    np.stack(cast(List[Any], test_outputs['x_corr'])),
-    test_outputs['sens'],
-    args.seed
-  )
+    # 3. Verify utility of Udesc
+    desc_fidelity_scores = evaluate_latent_utility_fidelity(
+      np.stack(cast(List[Any], test_outputs['u_desc'])),
+      np.stack(cast(List[Any], test_outputs['x_desc'])),
+      model.desc_meta,
+      seed=args.seed
+    )
 
-  # 2. Counterfactual invariance
-  u_desc_recon_loss = latent_recon_loss(
-    np.stack(cast(List[Any], test_outputs['u_desc'])), 
-    np.stack(cast(List[Any], test_outputs['u_desc_cf'])))
+    # Counterfactual sensitivity of Xdesc features
+    sensitivity_results = counterfactual_sensitivity(
+      np.stack(cast(List[Any], test_outputs['x_desc_pred'])),
+      np.stack(cast(List[Any], test_outputs['x_desc_cf'])),
+      model.desc_meta
+    )
 
-  # 3. Verify utility of Udesc
-  desc_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(cast(List[Any], test_outputs['u_desc'])),
-    np.stack(cast(List[Any], test_outputs['x_desc'])),
-    model.desc_meta,
-    seed=args.seed
-  )
+    logger.info("--- Xdesc Counterfactual Sensitivity ---")
+    for feature, score in sensitivity_results.items():
+      logger.info(f'{feature} score ({score['score_type']}): {score['score']:.4f}')
+      perf_metrics[f"{feature}_ccs_{score['score_type']}"] = score['score']
 
-  corr_fidelity_scores = evaluate_latent_utility_fidelity(
-    np.stack(cast(List[Any], test_outputs['u_corr'])),
-    np.stack(cast(List[Any], test_outputs['x_corr'])),
-    model.corr_meta,
-    seed=args.seed
-  )
+  else:
+    u_desc_sens_auc_mean = 0
+    u_desc_sens_auc_std = 0
+    x_desc_sens_auc_mean = 0
+    x_desc_sens_auc_std = 0
+    u_desc_recon_loss = -1
+    desc_fidelity_scores = {}
+
+  if len(model.corr_meta) > 0:
+    u_corr_sens_auc_mean, u_corr_sens_auc_std = run_sens_classifier(
+      np.stack(cast(List[Any], test_outputs['u_corr'])),
+      test_outputs['sens'],
+      args.seed
+    )
+
+    x_corr_sens_auc_mean, x_corr_sens_auc_std = run_sens_classifier(
+      np.stack(cast(List[Any], test_outputs['x_corr'])),
+      test_outputs['sens'],
+      args.seed
+    )
+
+    corr_fidelity_scores = evaluate_latent_utility_fidelity(
+      np.stack(cast(List[Any], test_outputs['u_corr'])),
+      np.stack(cast(List[Any], test_outputs['x_corr'])),
+      model.corr_meta,
+      seed=args.seed
+    )
+  else:
+    u_corr_sens_auc_mean = 0
+    u_corr_sens_auc_std = 0
+    x_corr_sens_auc_mean = 0
+    x_corr_sens_auc_std = 0
+    corr_fidelity_scores = {}
+  
 
   logger.info("--- Latent Utility Fidelity ---")
   for feature, score in desc_fidelity_scores.items():
@@ -133,17 +164,7 @@ def test_ceveahe(model, test_loader, logger, args):
       test_outputs['sens'].values
   )
 
-  # Counterfactual sensitivity of Xdesc features
-  sensitivity_results = counterfactual_sensitivity(
-    np.stack(cast(List[Any], test_outputs['x_desc_pred'])),
-    np.stack(cast(List[Any], test_outputs['x_desc_cf'])),
-    model.desc_meta
-  )
-
-  logger.info("--- Xdesc Counterfactual Sensitivity ---")
-  for feature, score in sensitivity_results.items():
-    logger.info(f'{feature} score ({score['score_type']}): {score['score']:.4f}')
-    perf_metrics[f"{feature}_ccs_{score['score_type']}"] = score['score']
+  
 
   ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
@@ -247,11 +268,26 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
 
       all_counterfactuals.append(batch_cf)
 
-      # Latent variables 
-      u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c').reset_index(drop=True)   
-      u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d').reset_index(drop=True)   
-      batch_latents = u_c_samples_df.merge(u_d_samples_df, left_index=True, right_index=True, suffixes=(None,'_dup')).drop(['patient_index_dup'], axis=1)
+      has_uc = model.uc_dim > 0
+      has_ud = model.ud_dim > 0
 
+      # Latent variables 
+      u_c_samples_df = process_latent_samples(u_c_samples, ref_index, 'u_c', m_samples).reset_index(drop=True) if has_uc else None
+      u_d_samples_df = process_latent_samples(u_d_samples, ref_index, 'u_d', m_samples).reset_index(drop=True) if has_ud else None  
+
+      batch_latents = pd.DataFrame({'patient_index': ref_index}) 
+
+      if u_c_samples_df is not None and u_d_samples_df is not None:
+        batch_latents = u_c_samples_df.merge(
+            u_d_samples_df, 
+            on='patient_index', 
+            how='inner'
+        )
+      elif u_c_samples_df is not None :
+        batch_latents = u_c_samples_df
+      elif u_d_samples_df is not None:
+        batch_latents = u_d_samples_df
+      
       all_latents.append(batch_latents)
 
   # Concatenate and reset index
@@ -260,23 +296,26 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
 
   return counterfactuals_df, latent_spaces_df
 
-def process_latent_samples(samples, patient_indices, latent_name):
+def process_latent_samples(samples, patient_indices, latent_name, m_samples):
   '''
     Converts a list of M sample tensors into a long-format dataframe conserving the patient indices
   '''
-  # samples_3d = np.array(samples)
-  _, m_samples, latent_dim = samples.shape
-
-  # Reshape to (batch_size, M_samples, latent_dim)
-  # => keeps all samples for one patient together
-  reshaped_samples = samples.reshape(-1, latent_dim)
 
   # Create repeated patient indices
   repeated_indices = np.repeat(patient_indices, m_samples)
+  df = pd.DataFrame({'patient_index': repeated_indices})
 
-  # Create dataframe
-  column_names = [f"{latent_name}_dim{i}" for i in range(latent_dim)]
-  df = pd.DataFrame(reshaped_samples, columns=column_names)
-  df.insert(0, 'patient_index', repeated_indices)
+  if samples is not None and samples.shape[-1] > 0:
+    latent_dim = samples.shape[-1]
+
+    # Reshape to (batch_size, M_samples, latent_dim)
+    # => keeps all samples for one patient together
+    reshaped_samples = samples.reshape(-1, latent_dim)
+
+    # Create dataframe
+    column_names = [f"{latent_name}_dim{i}" for i in range(latent_dim)]
+    samples_df = pd.DataFrame(reshaped_samples, columns=column_names)
+  
+    df = pd.concat([df, samples_df], axis=1)
 
   return df
