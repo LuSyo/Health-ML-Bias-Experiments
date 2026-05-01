@@ -19,12 +19,12 @@
     {
       "name": "ORIGINAL SCM",
       "desc": [
+        {"name":"age","type":"continuous"},
         {"name":"symptom_1_obs","type":"continuous"},
         {"name":"biomarker_1_obs","type":"continuous"},
         {"name":"procedure","type":"binary"}
       ],
       "corr": [
-        {"name":"age","type":"continuous"},
         {"name":"genetic_marker_1","type":"categorical", "n":3},
         {"name":"genetic_marker_2","type":"binary"},
         {"name":"symptom_2","type":"categorical", "n":3},
