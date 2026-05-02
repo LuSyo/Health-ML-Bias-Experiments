@@ -14,7 +14,7 @@ def calculate_performance_metrics(y_true, y_pred, y_prob):
         'brier_score': brier_score_loss(y_true, y_prob)
     }
 
-def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred_prob=None):
+def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred_prob=None, threshold=0.5):
     group_0 = sens == 0
     group_1 = sens == 1
 
@@ -49,13 +49,15 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred
             y_true[group_0],
             y_cf_prob[group_0],
             y_pred_prob[group_0],
-            y_cf_pred_prob[group_0]
+            y_cf_pred_prob[group_0],
+            threshold=threshold
         )
         ieco_mace_1, _ = calculate_ieco_mace(
             y_true[group_1],
             y_cf_prob[group_1],
             y_pred_prob[group_1],
-            y_cf_pred_prob[group_1]
+            y_cf_pred_prob[group_1],
+            threshold=threshold
         )
         strat_metrics['ieco_mace_0'] = ieco_mace_0
         strat_metrics['ieco_mace_1'] = ieco_mace_1
@@ -63,7 +65,7 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred
 
     return strat_metrics
 
-def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, patient_index):
+def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, patient_index, threshold):
     test_results = pd.DataFrame({
         'patient_index': patient_index,
         'y_true': y_true,
@@ -75,7 +77,7 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, p
 
     avg_results: pd.DataFrame = test_results.groupby('patient_index').mean()
 
-    y_pred_avg = (avg_results['y_pred_prob'] >= 0.5).astype(int)
+    y_pred_avg = (avg_results['y_pred_prob'] >= threshold).astype(int)
 
     global_perf = calculate_performance_metrics(
         avg_results['y_true'],
@@ -87,7 +89,8 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, p
         avg_results['y_true'],
         avg_results['y_cf_prob'],
         avg_results['y_pred_prob'],
-        avg_results['y_cf_pred_prob']
+        avg_results['y_cf_pred_prob'],
+        threshold=threshold
     )
     global_perf['ieco_mace'] = global_ieco_mace
 
@@ -145,7 +148,7 @@ def get_grouped_roc_curve(y_true, y_prob, sens):
     
     return grouped_roc_curve
 
-def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob):
+def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob, threshold=0.5):
   '''
     Measures the Equalised Counterfactual Odds criteria for counterfactual fairness via Mean Absolute Counterfactual Error:
     An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. 
@@ -162,7 +165,7 @@ def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob):
   total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
 
   # IECO MACE, conditioned on equality of factual and counterfactual outcome
-  y_cf = (y_cf_prob > 0.5).astype(int)
+  y_cf = (y_cf_prob > threshold).astype(int)
   equal_outcome = y_cf == y_true
 
   if not equal_outcome.any():

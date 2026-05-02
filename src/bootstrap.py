@@ -154,7 +154,7 @@ def main():
 
       # Train the baseline and fair models
       logger.info("Train baseline model")
-      rf_baseline, y_pred, y_pred_proba, y_cf_pred_proba = train_random_forest(X_train, y_train, X_test, X_cf_test, best_params, args.seed)
+      rf_baseline, y_pred, y_pred_proba, y_cf_pred_proba, baseline_threshold = train_random_forest(X_train, y_train, X_test, X_cf_test, best_params, args.target_ppv, args.seed)
 
       importances = rf_baseline.feature_importances_
       baseline_feature_importances.append(importances)
@@ -162,26 +162,26 @@ def main():
       del rf_baseline
       
       logger.info("Train Fair Model 0: Ucorr, Udesc, Xind")
-      _, fair_0_y_pred, fair_0_y_pred_proba, fair_0_y_cf_pred_proba = train_random_forest(
-      fair_0_X_train, fair_y_train, fair_0_X_test, fair_0_X_cf_test, best_params, args.seed)
+      _, _, fair_0_y_pred_proba, fair_0_y_cf_pred_proba, fair_0_threshold = train_random_forest(
+      fair_0_X_train, fair_y_train, fair_0_X_test, fair_0_X_cf_test, best_params, args.target_ppv, args.seed)
 
       del _
       
       logger.info("Train Fair Model 1: Ucorr, Xdesc, Xind")
-      _, fair_1_y_pred, fair_1_y_pred_proba, fair_1_y_cf_pred_proba = train_random_forest(
-      fair_1_X_train, fair_y_train, fair_1_X_test, fair_1_X_cf_test, best_params, args.seed)
+      _, _, fair_1_y_pred_proba, fair_1_y_cf_pred_proba, fair_1_threshold = train_random_forest(
+      fair_1_X_train, fair_y_train, fair_1_X_test, fair_1_X_cf_test, best_params, args.target_ppv, args.seed)
 
       del _
       
       logger.info("Train Fair Model 2: Xcorr, Udesc, Xind")
-      _, fair_2_y_pred, fair_2_y_pred_proba, fair_2_y_cf_pred_proba = train_random_forest(
-      fair_2_X_train, fair_y_train, fair_2_X_test, fair_2_X_cf_test, best_params, args.seed)
+      _, _, fair_2_y_pred_proba, fair_2_y_cf_pred_proba, fair_2_threshold = train_random_forest(
+      fair_2_X_train, fair_y_train, fair_2_X_test, fair_2_X_cf_test, best_params, args.target_ppv, args.seed)
 
       del _
       
       logger.info("Train Fair Model 3: Ucorr, Udesc")
-      _, fair_3_y_pred, fair_3_y_pred_proba, fair_3_y_cf_pred_proba = train_random_forest(
-      fair_3_X_train, fair_y_train, fair_3_X_test, fair_3_X_cf_test, best_params, args.seed)
+      _, _, fair_3_y_pred_proba, fair_3_y_cf_pred_proba, fair_3_threshold = train_random_forest(
+      fair_3_X_train, fair_y_train, fair_3_X_test, fair_3_X_cf_test, best_params, args.target_ppv, args.seed)
 
       del _
 
@@ -189,9 +189,10 @@ def main():
 
       #BASELINE PERF METRICS
       baseline_global_perf = calculate_performance_metrics(y_test, y_pred, y_pred_proba)
-      baseline_global_ieco_mace, _ = calculate_ieco_mace(y_test, y_cf_test, y_pred_proba, y_cf_pred_proba)
+      baseline_global_perf['threshold'] = baseline_threshold
+      baseline_global_ieco_mace, _ = calculate_ieco_mace(y_test, y_cf_test, y_pred_proba, y_cf_pred_proba, threshold=baseline_threshold)
       baseline_global_perf['ieco_mace'] = baseline_global_ieco_mace
-      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_test, y_cf_pred_proba)
+      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_test, y_cf_pred_proba, threshold=baseline_threshold)
       baseline_metrics.append(baseline_global_perf | baseline_strat_perf)
 
       # FAIR MODELS PERF METRICS
@@ -203,7 +204,9 @@ def main():
         fair_y_cf_test,
         fair_0_y_cf_pred_proba,
         fair_s_ref.values, 
-        patient_indexes)
+        patient_indexes,
+        threshold=fair_0_threshold)
+      fair_0_global_perf['threshold'] = fair_0_threshold
       fair_0_metrics.append(fair_0_global_perf | fair_0_strat_perf)
 
       fair_1_global_perf, fair_1_strat_perf, fair_1_roc_curves = avg_perf_per_patient(
@@ -212,7 +215,9 @@ def main():
         fair_y_cf_test,
         fair_1_y_cf_pred_proba,
         fair_s_ref.values, 
-        patient_indexes)
+        patient_indexes,
+        threshold=fair_1_threshold)
+      fair_1_global_perf['threshold'] = fair_1_threshold
       fair_1_metrics.append(fair_1_global_perf | fair_1_strat_perf)
 
       fair_2_global_perf, fair_2_strat_perf, fair_2_roc_curves = avg_perf_per_patient(
@@ -221,7 +226,9 @@ def main():
         fair_y_cf_test,
         fair_2_y_cf_pred_proba,
         fair_s_ref.values, 
-        patient_indexes)
+        patient_indexes,
+        threshold=fair_2_threshold)
+      fair_2_global_perf['threshold'] = fair_2_threshold
       fair_2_metrics.append(fair_2_global_perf | fair_2_strat_perf)
 
       fair_3_global_perf, fair_3_strat_perf, fair_3_roc_curves = avg_perf_per_patient(
@@ -230,7 +237,9 @@ def main():
         fair_y_cf_test,
         fair_3_y_cf_pred_proba,
         fair_s_ref.values, 
-        patient_indexes)
+        patient_indexes,
+        threshold=fair_3_threshold)
+      fair_3_global_perf['threshold'] = fair_3_threshold
       fair_3_metrics.append(fair_3_global_perf | fair_3_strat_perf)
 
       for name, curves in [

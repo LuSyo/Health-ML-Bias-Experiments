@@ -63,6 +63,7 @@ def parse_args():
 
   # Classifier bootstrap training
   parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
+  parser.add_argument('--target_ppv', type=float, default=0.9)
 
   return parser.parse_args()
 
