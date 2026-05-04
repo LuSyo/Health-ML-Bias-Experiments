@@ -4,13 +4,10 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def proportion_preserving_sampling(df, n_train, n_test, seed=42):
+def proportion_preserving_sampling(df, strat_cols, n_train, n_test, seed=42):
   """
   Sub-samples the population while strictly preserving the joint distribution of S, age_bin, and outcome_Y.
   """
-  df['age_bin'] = pd.qcut(df['age'], q=10, labels=False)
-  
-  strat_cols = ['S', 'age_bin', 'outcome_Y']
   
   proportions = df.groupby(strat_cols).size() / len(df)
   
@@ -44,11 +41,12 @@ def proportion_preserving_sampling(df, n_train, n_test, seed=42):
   
   return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
 
-def sample_stratified_class(population, n_train, n_test, strat_cols, proportions, class_val, seed):
+def sample_stratified_class(population, class_label, n_train, n_test, strat_cols, proportions, class_val, seed):
   """
   Samples a class by matching given strata proportions and target class sampling size
   """
-  class_df = population[population['outcome_Y'] == class_val]
+  class_df = population[population[class_label] == class_val]
+  # print(class_df.head())
   test_subsets = []
   train_subsets = []
   test_ratio = n_test / (n_test + n_train)
@@ -78,24 +76,16 @@ def sample_stratified_class(population, n_train, n_test, strat_cols, proportions
   
   return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
 
-def class_balanced_sampling(df, n_train, n_test, seed):
-  df['age_bin'] = pd.qcut(df['age'], q=10, labels=False)
-
-  strat_cols = ['S', 'age_bin']
+def class_balanced_sampling(df, class_label, strat_cols, n_train, n_test, seed):
 
   n_train_per_class = n_train // 2
   n_test_per_class = n_test // 2
 
   strat_proportions = df.groupby(strat_cols).size() / len(df)
 
-  train_cases_sampled, test_cases_sampled = sample_stratified_class(df, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=1, seed=seed)
-  train_controls_sampled, test_controls_sampled, = sample_stratified_class(df, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=0, seed=seed)
+  train_cases_sampled, test_cases_sampled = sample_stratified_class(df, class_label, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=1, seed=seed)
 
-  train_cases_sampled.drop(columns=['age_bin'], inplace=True)
-  test_cases_sampled.drop(columns=['age_bin'], inplace=True)
-  train_controls_sampled.drop(columns=['age_bin'], inplace=True)
-  test_controls_sampled.drop(columns=['age_bin'], inplace=True)
-  df.drop(columns=['age_bin'], inplace=True)
+  train_controls_sampled, test_controls_sampled, = sample_stratified_class(df, class_label, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=0, seed=seed)
 
   return pd.concat([train_cases_sampled, train_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True), pd.concat([test_cases_sampled, test_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True)
 
@@ -158,6 +148,39 @@ def scale_dataset(df, norm_features, skewed_features):
 
   return df_scaled
 
+def apply_treatment_bias(df, biomarker, s_target=0, bias_prob=0.7, b_mean_shift=-12.0, b_std_shift=3.0, seed=4):
+  """
+  Applies treatment bias as a treatment effect on the biomarker to everyone but individuals affected by bias
+
+  inputs:
+    - df: raw clinical dataset
+    - s_target: group impacted by the bias, i.e. NOT receiving treatment
+    - bias_prob: probability that the bias affects an individual in the target group
+    - b_mean_shift (float): average shift for the biomarker in treated individuals
+    - b_std_shift (float): shift variance for the biomarker in treated individuals
+
+  output:
+    - biased dataset
+  """
+  np.random.seed(seed)
+
+  df_obs = df.copy()
+
+  target_indices = df_obs[df_obs['S'] == s_target].index
+
+  # Apply treatment effect to everyone but individuals affected by bias
+  B_biased_indices = np.random.choice(
+    target_indices, 
+    size=int(len(target_indices) * bias_prob), 
+    replace=False
+  )
+  treatment_indices = df_obs.index.difference(B_biased_indices)
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  b_treatment_effect = np.random.normal(b_mean_shift, b_std_shift, size=len(treatment_indices))
+  df_obs.loc[treatment_indices, f'{biomarker}_obs'] += b_treatment_effect
+
+  return df_obs
+
 def apply_additive_unfair_bias(df, s_target=0, bias_prob=0.5, s1_max_shift=2, b1_mean_shift=12.0, b1_std_shift=3.0, proc_risk_penalty=0.15, seed=4):
   """
   Applies additive bias to clinical features
@@ -217,19 +240,19 @@ def apply_additive_unfair_bias(df, s_target=0, bias_prob=0.5, s1_max_shift=2, b1
 
   return df_obs
 
-def plot_cont_feature(df, feature, label):
+def plot_cont_feature(df, feature, label, class_label):
   fig, axes = plt.subplots(1, 2, figsize=(16, 4))
   sns.histplot(df, x=feature, hue="S", bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue="outcome_Y", bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[1])
+  sns.histplot(df, x=feature, hue=class_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[1])
   fig.suptitle(f'Probability distribution of {label}', fontsize=16)
   plt.show()
 
   return fig
 
-def plot_cat_feature(df, feature, label):
+def plot_cat_feature(df, feature, label, class_label):
   fig, axes = plt.subplots(1, 2, figsize=(12, 4))
   sns.histplot(df, x=df[feature].astype(int), hue="S", common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue="outcome_Y", common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[1])
+  sns.histplot(df, x=feature, hue=class_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[1])
   fig.suptitle(f'Probability distribution of {label}', fontsize=16)
   plt.show()
 
