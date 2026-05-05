@@ -2,6 +2,7 @@ import random
 
 import numpy as np
 import pandas as pd
+from sklearn.utils import resample
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
@@ -183,7 +184,7 @@ def _get_config_key(desc_list):
   """Generates a unique, order-independent key for a pathway configuration."""
   return tuple(sorted([f['name'] if isinstance(f, dict) else f for f in desc_list]))
 
-def _audit_pathway_config(dataset, mapping, iteration, all_features, logger, args):
+def _audit_pathway_config(dataset, mapping, iteration, run_id, all_features, logger, args):
   # 1. Data loaders
   train_loader, val_loader, _ \
     = make_bucketed_loader(dataset, mapping, val_size=0.3,
@@ -212,15 +213,17 @@ def _audit_pathway_config(dataset, mapping, iteration, all_features, logger, arg
 
   # 4. return metrics for this causal model
   return sps_test_ceveahe(model, val_loader, all_features, mapping['desc'], 
-                          iteration, logger, args)
+                          iteration, run_id, logger, args)
 
 def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   """
   Stochastic pathway sensitivity (SPS) audit
   Iteratively re-partition features into Xdesc and Xcorr to test causal fidelity
   """
+  n_cross_val = args.cross_val if args.cross_val > 1 else 1
 
   results = []
+  baseline_results = []
 
   logger.info("--- Start Stochastic bucket sensitivity (SBS) audit ---")
 
@@ -240,11 +243,17 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   baseline_key = _get_config_key([])
   seen_keys.add(baseline_key)
 
-  baseline_results = _audit_pathway_config(dataset, baseline_mapping, -1, features, logger, args)
+  for j in range(n_cross_val):
+    logger.info(f'BASELINE CONFIG')
+    logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
+    boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
+    baseline_run_results = _audit_pathway_config(boot_dataset, baseline_mapping, -1, j,features, logger, args)
+    baseline_results.extend(baseline_run_results)
 
   # TARGETED PATHWAYS
   for i, tp in enumerate(targeted_pathways):
-    logger.info(f"Running targeted pathway: {tp.get('name', f"#{i}")}")
+    config_name = tp.get('name', f"targeted_{i}")
+    logger.info(f"Running targeted pathway: {config_name}")
 
     current_mapping = {
       'desc': tp["desc"],
@@ -254,17 +263,21 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
       'target': feature_mapping['target']
     }
 
-    tp_results = _audit_pathway_config(dataset, current_mapping, f"targeted_{i}", features, logger, args)
-    results.extend(tp_results)
+    for j in range(n_cross_val):
+      logger.info(f'Iteration #{i+1}/{args.sps_iter}')
+      logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
+      boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
+      tp_results = _audit_pathway_config(boot_dataset, current_mapping, config_name, j, features, logger, args)
+      results.extend(tp_results)
+
     seen_keys.add(_get_config_key(tp['desc']))
   
   for i in range(args.sps_iter):
-    logger.info(f"> Iteration {i+1}/{args.sps_iter}")
     
     # 1. Randomly partition features
     # We ensure at least one feature remains in each bucket
     shuffled = random.sample(features, len(features))
-    split_point = random.randint(1, len(shuffled) - 1)
+    split_point = random.randint(1, len(shuffled))
     
     current_desc = shuffled[:split_point]
     current_corr = shuffled[split_point:]
@@ -284,14 +297,18 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
       'target': feature_mapping['target']
     }
 
-    iteration_results = _audit_pathway_config(dataset, current_mapping, i, features, logger, args)
+    for j in range(n_cross_val):
+      logger.info(f'Iteration #{i+1}/{args.sps_iter}')
+      logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
+      boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
+      iteration_results = _audit_pathway_config(boot_dataset, current_mapping, i, j,features, logger, args)
+      results.extend(iteration_results)
 
-    results.extend(iteration_results)
     seen_keys.add(current_key)  
           
   return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
-def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, logger, args):
+def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
   model.eval()
   all_sens, all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
   [], [], [], [], [], [], [], [], [], [], [], []
@@ -303,6 +320,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
     for batch in test_loader:
       x_ind, x_desc, x_corr, x_sens, y = [t.to(args.device) for t in batch[:5]]
 
+      batch_size = x_sens.size(0)
       s_bio = x_sens.clone()
       s_soc = x_sens.clone()
 
@@ -315,7 +333,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
       # from mean Ucorr and Udesc
       x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
-      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta)
+      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta, batch_size)
 
       y_cf_logits = y_bio_cf_logits if is_baseline else y_soc_cf_logits
       y_cf_prob = nn.Sigmoid()(y_cf_logits)
@@ -435,6 +453,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, log
 
     results.append({
       "iteration": iteration,
+      "run_id": run_id,
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "roc_auc": roc_auc,
