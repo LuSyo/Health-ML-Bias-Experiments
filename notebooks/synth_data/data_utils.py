@@ -133,20 +133,38 @@ def simulate_selection_bias(df, n_train, n_test, seed=4):
   return train_set.reset_index(drop=True), test_set.reset_index(drop=True)
 
 
-def scale_dataset(df, norm_features, skewed_features):
-  df_scaled = df.copy()
-  # Z-score for normal features
-  for var in norm_features:
-    df_scaled[var] = (df_scaled[var] - df_scaled[var].mean()) / df_scaled[var].std()
+def scale_dataset(df_train, df_test, minmax_features, standard_features, skewed_features):
+  """
+    Applies min-max normalisation and standardisation to training and test datasets
+  """
+  df_train_scaled = df_train.copy()
+  df_test_scaled = df_test.copy()
 
-  # Log and Z-score for skewed features
+  # Standardisation
+  for var in standard_features:
+    mu = df_train[var].mean()
+    sigma = df_train[var].std()
+    df_train_scaled[var] = (df_train[var] - mu) / sigma
+    df_test_scaled[var] = (df_test[var] - mu) / sigma
+
+  # Log Standardisation
   for var in skewed_features:
-    log_var = np.log(df[var])
-    df_scaled[var] = (log_var - log_var.mean()) / log_var.std()
+    log_mu = np.log1p(df_train[var]).mean()
+    log_sigma = np.log1p(df_train[var]).std()
+    df_train_scaled[var] = (np.log(df_train[var]) - log_mu) / log_sigma
+    df_test_scaled[var] = (np.log(df_test[var]) - log_mu) / log_sigma
 
-  df_scaled.reset_index(drop=True, inplace=True)
+  # Normalisation
+  for var in minmax_features:
+    x_min = df_train[var].min()
+    x_max = df_train[var].max()
+    df_train_scaled[var] = (df_train[var] - x_min) / (x_max - x_min)
+    df_test_scaled[var] = (df_test[var] - x_min) / (x_max - x_min)
 
-  return df_scaled
+  df_train_scaled.reset_index(drop=True, inplace=True)
+  df_test_scaled.reset_index(drop=True, inplace=True)
+
+  return df_train_scaled, df_test_scaled
 
 def apply_treatment_bias(df, biomarker, s_target=0, bias_prob=0.7, b_mean_shift=-12.0, b_std_shift=3.0, seed=4):
   """

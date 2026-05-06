@@ -395,6 +395,14 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
   y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
   y_pred_cf_prob_np = np.concatenate(all_y_pred_cf_prob).flatten()
 
+
+  if np.isnan(u_desc_np).any():
+    logger.error("NaNs detected in U_desc latents prior to evaluation.")
+    raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
+  if np.isnan(x_desc_np).any():
+    logger.error("NaNs detected in X_desc inputs prior to evaluation.")
+    raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
+
   # Latent Utility Fidelity
   f_desc = evaluate_latent_utility_fidelity(
       u_desc_np, x_desc_np, model.desc_meta, args.seed

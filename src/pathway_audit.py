@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import gc
+import torch
+torch.autograd.set_detect_anomaly(True)
 
 from config import Config
 from cevaehe.model import CEVAEHE
