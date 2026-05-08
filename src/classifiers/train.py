@@ -63,7 +63,7 @@ def train_random_forest(X_train, y_train, X_test, X_cf_test, params, target_ppv,
   
   rf.fit(X_train, y_train)
   y_train_pred_proba = rf.predict_proba(X_train)[:, 1]
-  threshold = find_threshold_at_target_ppv(y_train, y_train_pred_proba, target_ppv)
+  threshold = set_class_threshold(y_train, y_train_pred_proba)
 
   y_pred_proba = rf.predict_proba(X_test)[:, 1]
   y_cf_pred_proba = rf.predict_proba(X_cf_test)[:, 1]
@@ -71,6 +71,13 @@ def train_random_forest(X_train, y_train, X_test, X_cf_test, params, target_ppv,
   y_pred = (y_pred_proba > threshold).astype(int)
 
   return [rf, y_pred, y_pred_proba, y_cf_pred_proba, threshold]
+
+def set_class_threshold(y_true, y_probs):
+  """
+    Set the classification threshold based on negative class prevalence
+  """
+  neg_class_prevalence = 1 - y_true.sum()/len(y_true)
+  return np.quantile(y_probs, neg_class_prevalence)
 
 def find_threshold_at_target_ppv(y_true, y_probs, target_ppv):
   """

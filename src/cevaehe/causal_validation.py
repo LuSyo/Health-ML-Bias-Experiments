@@ -13,7 +13,7 @@ from torch import nn
 from cevaehe.model import CEVAEHE
 from cevaehe.data_loader import make_bucketed_loader
 from cevaehe.train import lite_train_ceveahe
-from metrics import calculate_ieco_mace
+from metrics import calculate_balanced_total_mace
 
 def run_sens_classifier(features, target_sens, seed=4):
   '''
@@ -71,7 +71,7 @@ def counterfactual_sensitivity(v_pred, v_pred_cf, v_meta):
       if f_type in ['categorical', 'binary']:
         # Flip Rate: Percentage of cases where the hard-reconstructed 
         # category or bit changed
-        changes = np.sum(v != v_cf)
+        changes = (v != v_cf).sum()
         score = changes / sample_size
         score_type = "flip rate"
       else:
@@ -253,7 +253,6 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   # TARGETED PATHWAYS
   for i, tp in enumerate(targeted_pathways):
     config_name = tp.get('name', f"targeted_{i}")
-    logger.info(f"Running targeted pathway: {config_name}")
 
     current_mapping = {
       'desc': tp["desc"],
@@ -264,7 +263,7 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
     }
 
     for j in range(n_cross_val):
-      logger.info(f'Iteration #{i+1}/{args.sps_iter}')
+      logger.info(f"Running targeted pathway: {config_name}")
       logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
       boot_dataset = resample(dataset, replace=False, random_state=args.seed + j)
       tp_results = _audit_pathway_config(boot_dataset, current_mapping, config_name, j, features, logger, args)
@@ -310,8 +309,8 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
 
 def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
   model.eval()
-  all_sens, all_u_corr, all_u_desc, all_x_corr, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_y_true, all_y_cf_prob, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
-  [], [], [], [], [], [], [], [], [], [], [], []
+  all_sens, all_u_desc, all_x_corr, all_x_desc, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
+  [], [], [], [], [], [], [], []
 
   is_baseline = len(desc_features) == 0
   if is_baseline: logger.info(f'---BASELINE RESULTS---')
@@ -331,12 +330,9 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, y_soc_cf_logits, y_bio_cf_logits, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
       x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta, batch_size)
-
-      y_cf_logits = y_bio_cf_logits if is_baseline else y_soc_cf_logits
-      y_cf_prob = nn.Sigmoid()(y_cf_logits)
 
       y_full_cf_prob = nn.Sigmoid()(y_full_cf_logits)
 
@@ -361,36 +357,18 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
 
       # --- STORE BATCH RESULTS ---
       all_sens.append(x_sens.cpu().numpy())
-      all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
       all_x_desc.append(x_desc.cpu().numpy())
       all_x_corr.append(x_corr.cpu().numpy())
       all_y_true.append(y.cpu().numpy())
-      all_y_cf_prob.append(y_cf_prob.cpu().numpy())
       all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
       all_y_pred_prob.append(y_pred_prob.cpu().numpy())
       all_y_pred_cf_prob.append(y_pred_cf_prob.cpu().numpy())
-
-      batch_size = x_corr.shape[0]
-      if x_desc_pred is not None:
-        all_x_desc_pred.append(x_desc_pred.cpu().numpy())
-      else:
-        all_x_desc_pred.append(np.empty((batch_size, 0)))
-          
-      if x_desc_cf is not None:
-        all_x_desc_cf.append(x_desc_cf.cpu().numpy())
-      else:
-        all_x_desc_cf.append(np.empty((batch_size, 0)))
     
   sens_np = np.concatenate(all_sens).flatten()
-  u_corr_np = np.stack(list(np.concatenate(all_u_corr)))
   u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
   x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
-  x_corr_np = np.stack(list(np.concatenate(all_x_corr)))
-  x_desc_pred_np = np.stack(list(np.concatenate(all_x_desc_pred)))
-  x_desc_cf_np = np.stack(list(np.concatenate(all_x_desc_cf)))
   y_true_np = np.concatenate(all_y_true).flatten()
-  y_cf_prob_np = np.concatenate(all_y_cf_prob).flatten()
   y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
   y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
   y_pred_cf_prob_np = np.concatenate(all_y_pred_cf_prob).flatten()
@@ -403,20 +381,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
     logger.error("NaNs detected in X_desc inputs prior to evaluation.")
     raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
 
-  # Latent Utility Fidelity
-  f_desc = evaluate_latent_utility_fidelity(
-      u_desc_np, x_desc_np, model.desc_meta, args.seed
-  )
-
-  f_corr = evaluate_latent_utility_fidelity(
-      u_corr_np, x_corr_np, model.corr_meta, args.seed
-  )
-
-  # Counterfactual sensitivity
-  cf_sensitivity = counterfactual_sensitivity(
-      x_desc_pred_np, x_desc_cf_np, model.desc_meta
-  )
-
   # # Total Effect Error
   te_error, *_ = calculate_te_error(
     y_true_np,
@@ -425,23 +389,22 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
     sens_np
   )
 
-  # IECO MACE
-  stratified_ieco_mace = {}
-  stratified_total_mace = {}
+  # Balanced MACE
+  stratified_mace = {}
   for v in np.unique(sens_np):
     group_mask = sens_np == v
-    group_ieco_mace, group_total_mace = calculate_ieco_mace(
-      y_true_np[group_mask],
-      y_cf_prob_np[group_mask], 
+    group_mace = calculate_balanced_total_mace(
+      y_true_np[group_mask], 
       y_pred_prob_np[group_mask], 
       y_pred_cf_prob_np[group_mask]
     )
-    stratified_ieco_mace["ieco_mace_" + str(v)] = group_ieco_mace
-    stratified_total_mace["total_mace_" + str(v)] = group_total_mace
-    logger.info(f'TOTAL MACE, GROUP {str(v)}: {group_total_mace}')
+    stratified_mace["mace_" + str(v)] = group_mace
+    logger.info(f'MACE, GROUP {str(v)}: {group_mace}')
 
-  ieco_mace, total_mace = calculate_ieco_mace(y_true_np, y_cf_prob_np, y_pred_prob_np, y_pred_cf_prob_np)
-  logger.info(f'TOTAL MACE: {ieco_mace}')
+  mace = calculate_balanced_total_mace(
+    y_true_np, y_pred_prob_np, y_pred_cf_prob_np
+  )
+  logger.info(f'TOTAL MACE: {mace}')
 
   # Utility: AUPRC
   roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
@@ -453,12 +416,6 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
   for feature in features:
     f_name = feature['name']
     
-    f_desc_score = f_desc[f_name]['score'] if f_desc.get(f_name, False) else np.nan
-    f_corr_score = f_corr[f_name]['score'] if f_corr.get(f_name, False) else np.nan
-    norm_f_desc_score = f_desc[f_name]['norm_score'] if f_desc.get(f_name, False) else np.nan
-    norm_f_corr_score = f_corr[f_name]['norm_score'] if f_corr.get(f_name, False) else np.nan
-    sensitivity = cf_sensitivity[f_name]['score'] if cf_sensitivity.get(f_name, False) else np.nan
-
     results.append({
       "iteration": iteration,
       "run_id": run_id,
@@ -467,17 +424,9 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "roc_auc": roc_auc,
       "auprc": auprc,
       "te_error": te_error,
-      "ieco_mace": ieco_mace,
-      "total_mace": total_mace,
-      "cf_sensitivity": sensitivity,
-      "sensitivity_scoring": cf_sensitivity[f_name]['score_type'] if cf_sensitivity.get(f_name, False) else "",
-      "f_desc": f_desc_score,
-      "f_corr": f_corr_score,
-      "norm_f_desc": norm_f_desc_score,
-      "norm_f_corr": norm_f_corr_score,
-      "fidelity_scoring": f_desc[f_name]['score_type'] if f_desc.get(f_name, False) else f_corr[f_name]['score_type'],
+      "mace": mace,
       "desc_size": len(desc_features),
       "u_desc_dim": model.ud_dim
-    } | stratified_ieco_mace | stratified_total_mace)
+    } | stratified_mace)
     
   return results

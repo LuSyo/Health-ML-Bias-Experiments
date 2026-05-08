@@ -149,29 +149,60 @@ def get_grouped_roc_curve(y_true, y_prob, sens):
     return grouped_roc_curve
 
 def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob, threshold=0.5):
-  '''
-    Measures the Equalised Counterfactual Odds criteria for counterfactual fairness via Mean Absolute Counterfactual Error:
-    An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. 
+    '''
+        Measures the Equalised Counterfactual Odds criteria for counterfactual fairness via Mean Absolute Counterfactual Error:
+        An individual whose sensitive attribute is changed in a counterfactual world, all independent factors being the same, should receive the same prediction as their image, given that they have the same actual outcome. 
 
-    Inputs:
-      - y_true: The factual actual outcome (as binary)
-      - y_cf: The counterfactual actual outcome (as probabilities)
-      - y_pred: The factual prediction (as probabilities)
-      - y_pred_cf: The counterfactual prediction (as probabilities)
+        Inputs:
+        - y_true: The factual actual outcome (as binary)
+        - y_cf: The counterfactual actual outcome (as probabilities)
+        - y_pred: The factual prediction (as probabilities)
+        - y_pred_cf: The counterfactual prediction (as probabilities)
 
-    Outputs:
-      mace: Mean Absolute Counterfactual Error
-  '''
-  total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
+        Outputs:
+        mace: Mean Absolute Counterfactual Error
+    '''
+    total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
 
-  # IECO MACE, conditioned on equality of factual and counterfactual outcome
-  y_cf = (y_cf_prob > threshold).astype(int)
-  equal_outcome = y_cf == y_true
+    # IECO MACE, conditioned on equality of factual and counterfactual outcome
+    y_cf = (y_cf_prob > threshold).astype(int)
+    equal_outcome = y_cf == y_true
 
-  if not equal_outcome.any():
-    ieco_mace = np.nan
-  else:
-    ieco_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob)[equal_outcome])
+    if not equal_outcome.any():
+        ieco_mace = np.nan
+    else:
+        ieco_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob)[equal_outcome])
 
-  return ieco_mace, total_mace
+    return ieco_mace, total_mace
+
+def calculate_balanced_total_mace(y_true, y_pred_prob, y_pred_cf_prob):
+    """
+    Calculates macro-averaged Total MACE to ensure imbalanced outcomes
+    do not mask the causal signal in the minority class.
+    """
+    # Calculate absolute probability shifts for the whole set
+    abs_diffs = np.abs(y_pred_prob - y_pred_cf_prob)
+
+    # Class-specific means
+    mace_pos = np.mean(abs_diffs[y_true == 1])
+    mace_neg = np.mean(abs_diffs[y_true == 0])
+
+    # Macro-average (unweighted by class size)
+    balanced_mace = (mace_pos + mace_neg) / 2
+
+    return balanced_mace
     
+def calculate_counterfactual_harm(y_true, y_pred_prob, y_pred_cf_prob):
+    pos_mask = (y_true == 1)
+    neg_mask = (y_true == 0)
+
+    # Harm to the sick: Risk is LOWER in counterfactual (Under-diagnosis)
+    harm_pos = np.mean(np.maximum(0, y_pred_prob[pos_mask] - y_pred_cf_prob[pos_mask]))
+
+    # Harm to the healthy: Risk is HIGHER in counterfactual (Over-diagnosis)
+    harm_neg = np.mean(np.maximum(0, y_pred_cf_prob[neg_mask] - y_pred_prob[neg_mask]))
+
+    # Balanced Harm metric
+    balanced_harm = (harm_pos + harm_neg) / 2
+
+    return balanced_harm, harm_pos, harm_neg
