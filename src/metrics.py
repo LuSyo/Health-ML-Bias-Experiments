@@ -162,7 +162,7 @@ def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob, threshol
         Outputs:
         mace: Mean Absolute Counterfactual Error
     '''
-    total_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob))
+    total_mace = calculate_mace(y_pred_prob, y_pred_cf_prob)
 
     # IECO MACE, conditioned on equality of factual and counterfactual outcome
     y_cf = (y_cf_prob > threshold).astype(int)
@@ -171,17 +171,20 @@ def calculate_ieco_mace(y_true, y_cf_prob, y_pred_prob, y_pred_cf_prob, threshol
     if not equal_outcome.any():
         ieco_mace = np.nan
     else:
-        ieco_mace = np.mean(np.abs(y_pred_prob - y_pred_cf_prob)[equal_outcome])
+        ieco_mace = np.mean(calculate_mace(y_pred_prob, y_pred_cf_prob)[equal_outcome])
 
     return ieco_mace, total_mace
 
-def calculate_balanced_total_mace(y_true, y_pred_prob, y_pred_cf_prob):
+def calculate_mace(y_pred_prob, y_cf_prob):
+    return np.mean(np.abs(y_pred_prob - y_cf_prob))
+
+def calculate_balanced_total_mace(y_true, y_pred_prob, y_cf_prob):
     """
     Calculates macro-averaged Total MACE to ensure imbalanced outcomes
     do not mask the causal signal in the minority class.
     """
     # Calculate absolute probability shifts for the whole set
-    abs_diffs = np.abs(y_pred_prob - y_pred_cf_prob)
+    abs_diffs = np.abs(y_pred_prob - y_cf_prob)
 
     # Class-specific means
     mace_pos = np.mean(abs_diffs[y_true == 1])

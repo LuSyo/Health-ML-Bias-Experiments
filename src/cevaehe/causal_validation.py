@@ -13,7 +13,7 @@ from torch import nn
 from cevaehe.model import CEVAEHE
 from cevaehe.data_loader import make_bucketed_loader
 from cevaehe.train import lite_train_ceveahe
-from metrics import calculate_balanced_total_mace
+from metrics import calculate_balanced_total_mace, calculate_mace
 
 def run_sens_classifier(features, target_sens, seed=4):
   '''
@@ -307,7 +307,7 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
           
   return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
-def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
+def sps_test_ceveahe_old(model, test_loader, features, desc_features, iteration, run_id, logger, args):
   model.eval()
   all_sens, all_u_desc, all_x_corr, all_x_desc, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
   [], [], [], [], [], [], [], []
@@ -429,4 +429,90 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "u_desc_dim": model.ud_dim
     } | stratified_mace)
     
+  return results
+
+def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
+  model.eval()
+  all_sens, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_soc_cf_prob = [], [], [], [], []
+
+  is_baseline = len(desc_features) == 0
+  if is_baseline: logger.info(f'---BASELINE RESULTS---')
+
+  with torch.no_grad():
+    for batch in test_loader:
+      x_ind, x_desc, x_corr, x_sens, y = [t.to(args.device) for t in batch[:5]]
+
+      s_bio = x_sens.clone()
+      s_soc = x_sens.clone()
+
+      # INFERENCE
+      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
+
+      if mu_corr.isnan().any() or mu_desc.isnan().any():
+        logger.error("NaNs detected in latents.")
+        raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
+
+      _, _, y_pred_logits, _, _, y_soc_cf_logits, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+
+      y_pred_prob = nn.Sigmoid()(y_pred_logits)
+      y_soc_cf_prob = nn.Sigmoid()(y_soc_cf_logits)
+      y_full_cf_prob = nn.Sigmoid()(y_full_cf_logits)
+
+      all_sens.append(x_sens.cpu().numpy())
+      all_y_true.append(y.cpu().numpy())
+      all_y_pred_prob.append(y_pred_prob.cpu().numpy())
+      all_y_soc_cf_prob.append(y_soc_cf_prob.cpu().numpy())
+      all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
+    
+  sens_np = np.concatenate(all_sens).flatten()
+  y_true_np = np.concatenate(all_y_true).flatten()
+  y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
+  y_soc_cf_prob_np = np.concatenate(all_y_soc_cf_prob).flatten()
+  y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
+
+  # TOTAL EFFECT ERROR
+  te_error, *_ = calculate_te_error(
+    y_true = y_true_np,
+    y_pred_prob = y_pred_prob_np,
+    y_cf_prob = y_full_cf_prob_np,
+    sens = sens_np
+  )
+
+  # MACE
+  stratified_mace = {}
+  for v in np.unique(sens_np):
+    group_mask = sens_np == v
+    group_mace = calculate_mace( 
+      y_pred_prob = y_pred_prob_np[group_mask], 
+      y_cf_prob = y_soc_cf_prob_np[group_mask]
+    )
+    stratified_mace["mace_" + str(v)] = group_mace
+    logger.info(f'MACE, GROUP {str(v)}: {group_mace}')
+
+  mace = calculate_mace(
+    y_pred_prob_np, y_soc_cf_prob_np
+  )
+  logger.info(f'GLOBAL MACE: {mace}')
+
+  # AUPRC and ROC-AUC
+  roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
+  auprc = average_precision_score(y_true_np, y_pred_prob_np)
+  logger.info(f'ROC AUC: {roc_auc}')
+  logger.info(f'AUPRC: {auprc}')
+  
+  results = []
+  for feature in features:
+    f_name = feature['name']
+
+    results.append({
+      "iteration": iteration,
+      "run_id": run_id,
+      "feature": f_name,
+      "bucket": "x_desc" if feature in desc_features else "x_corr",
+      "roc_auc": roc_auc,
+      "auprc": auprc,
+      "te_error": te_error,
+      "mace": mace
+    } | stratified_mace)
+
   return results
