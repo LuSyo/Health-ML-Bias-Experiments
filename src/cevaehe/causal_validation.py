@@ -37,6 +37,27 @@ def run_sens_classifier(features, target_sens, seed=4):
   scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='roc_auc')
   return scores.mean(), scores.std()
 
+def run_test_classifier(features, target, seed=4):
+  '''
+    Trains a Random Forest classifier on the given features\
+     to predict the target.
+
+    Inputs
+      features: Pandas DataFrame of features
+      target: target to predict
+
+    Outputs
+      auprc: AUPRC (Average Precision)
+  '''
+  cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+  audit_rf = RandomForestClassifier(
+      n_estimators=300,
+      min_samples_leaf=5,
+      random_state=seed
+  )
+  scores = cross_val_score(audit_rf, features, target, cv=cv, scoring='average_precision')
+  return scores.mean(), scores.std()
+
 def latent_recon_loss(u, u_cf):
   '''
     Calculates the mean reconstruction loss between the latent U and its counterfactual, as a Mean Square Error loss
@@ -433,7 +454,7 @@ def sps_test_ceveahe_old(model, test_loader, features, desc_features, iteration,
 
 def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
   model.eval()
-  all_sens, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_soc_cf_prob = [], [], [], [], []
+  all_sens, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_soc_cf_prob, all_u_desc, all_x_desc, all_x_corr, all_x_ind = [], [], [], [], [], [], [], [], []
 
   is_baseline = len(desc_features) == 0
   if is_baseline: logger.info(f'---BASELINE RESULTS---')
@@ -463,12 +484,20 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       all_y_pred_prob.append(y_pred_prob.cpu().numpy())
       all_y_soc_cf_prob.append(y_soc_cf_prob.cpu().numpy())
       all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
+      all_u_desc.append(mu_desc.cpu().numpy())
+      all_x_desc.append(x_desc.cpu().numpy())
+      all_x_corr.append(x_corr.cpu().numpy())
+      all_x_ind.append(x_ind.cpu().numpy())
     
   sens_np = np.concatenate(all_sens).flatten()
   y_true_np = np.concatenate(all_y_true).flatten()
   y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
   y_soc_cf_prob_np = np.concatenate(all_y_soc_cf_prob).flatten()
   y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
+  u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
+  x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
+  x_corr_np = np.stack(list(np.concatenate(all_x_corr)))
+  x_ind_np = np.stack(list(np.concatenate(all_x_ind)))
 
   # TOTAL EFFECT ERROR
   te_error, *_ = calculate_te_error(
@@ -494,11 +523,25 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
   )
   logger.info(f'GLOBAL MACE: {mace}')
 
-  # AUPRC and ROC-AUC
-  roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
-  auprc = average_precision_score(y_true_np, y_pred_prob_np)
-  logger.info(f'ROC AUC: {roc_auc}')
-  logger.info(f'AUPRC: {auprc}')
+  # Internal AUPRC and ROC-AUC
+  internal_roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
+  internal_auprc = average_precision_score(y_true_np, y_pred_prob_np)
+  logger.info(f'Internal ROC AUC: {internal_roc_auc}')
+  logger.info(f'Internal AUPRC: {internal_auprc}')
+
+  # External AUPRC
+  ext_x_auprc, _ = run_test_classifier(
+    features = np.concat((x_desc_np, x_corr_np, x_ind_np), axis=1),
+    target= y_true_np,
+    seed = args.seed
+  )
+  ext_u_auprc, _ = run_test_classifier(
+    features = np.concat((u_desc_np, x_corr_np, x_ind_np), axis=1),
+    target= y_true_np,
+    seed = args.seed
+  )
+  logger.info(f'External AUPRC (Xdesc, Xcorr, Xind): {ext_x_auprc}')
+  logger.info(f'External AUPRC (Udesc, Xcorr, Xind): {ext_u_auprc}')
   
   results = []
   for feature in features:
@@ -509,8 +552,10 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "run_id": run_id,
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
-      "roc_auc": roc_auc,
-      "auprc": auprc,
+      "ext_x_auprc": ext_x_auprc,
+      "ext_u_auprc": ext_u_auprc,
+      "internal_roc_auc": internal_roc_auc,
+      "internal_auprc": internal_auprc,
       "te_error": te_error,
       "mace": mace
     } | stratified_mace)
