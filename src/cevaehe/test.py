@@ -2,7 +2,7 @@ from typing import cast, List, Any
 import torch
 import numpy as np
 import pandas as pd
-from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity, counterfactual_sensitivity
+from cevaehe.causal_validation import calculate_te_error, latent_recon_loss, run_sens_classifier, evaluate_latent_utility_fidelity, counterfactual_sensitivity, calculate_mace
 from metrics import calculate_performance_metrics, stratified_perf, get_cca
 
 def test_ceveahe(model, test_loader, logger, args):
@@ -10,8 +10,8 @@ def test_ceveahe(model, test_loader, logger, args):
   device = args.device
   model.eval()
 
-  all_y_true, all_y_pred_prob, all_y_full_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_x_corr, all_u_desc_cf = \
-    [], [], [], [], [], [], [], [], [], [], []
+  all_y_true, all_y_pred_prob, all_y_soc_cf_prob, all_y_full_cf_prob, all_sens, all_u_corr, all_u_desc, all_x_desc, all_x_desc_pred, all_x_desc_cf, all_x_corr, all_u_desc_cf = \
+    [], [], [], [], [], [], [], [], [], [], [], []
 
   with torch.no_grad():
     for batch in test_loader:
@@ -27,7 +27,7 @@ def test_ceveahe(model, test_loader, logger, args):
 
       # Factual and Full Counterfactual prediction
       # from mean Ucorr and Udesc
-      x_desc_pred_logits, _, y_pred_logits, x_desc_cf, _, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      x_desc_pred_logits, _, y_pred_logits, x_desc_cf, _, y_soc_cf_logits, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
 
       x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta, batch_size)
       
@@ -39,6 +39,7 @@ def test_ceveahe(model, test_loader, logger, args):
       all_y_true.append(y.cpu().numpy())
       all_y_pred_prob.append(torch.sigmoid(y_pred_logits).cpu().numpy())
       all_y_full_cf_prob.append(torch.sigmoid(y_full_cf_logits).cpu().numpy())
+      all_y_soc_cf_prob.append(torch.sigmoid(y_soc_cf_logits).cpu().numpy())
       all_sens.append(x_sens.cpu().numpy())
       all_u_corr.append(mu_corr.cpu().numpy())
       all_u_desc.append(mu_desc.cpu().numpy())
@@ -52,6 +53,7 @@ def test_ceveahe(model, test_loader, logger, args):
       'y_true': np.concatenate(all_y_true).flatten(),
       'y_pred_prob': np.concatenate(all_y_pred_prob).flatten(),
       'y_full_cf_prob': np.concatenate(all_y_full_cf_prob).flatten(),
+      'y_soc_cf_prob': np.concatenate(all_y_soc_cf_prob).flatten(),
       'sens': np.concatenate(all_sens).flatten(),
       'u_corr': list(np.concatenate(all_u_corr)),
       'u_desc': list(np.concatenate(all_u_desc)),
@@ -164,11 +166,27 @@ def test_ceveahe(model, test_loader, logger, args):
       test_outputs['sens'].values
   )
 
-  
+  # MACE 
+  stratified_mace = {}
+  for v in np.unique(test_outputs['sens']):
+    group_mask = test_outputs['sens'] == v
+    group_mace = calculate_mace( 
+      y_pred_prob = test_outputs.loc[group_mask, 'y_pred_prob'], 
+      y_cf_prob = test_outputs.loc[group_mask, 'y_soc_cf_prob']
+    )
+    stratified_mace["mace_" + str(v)] = group_mace
+    logger.info(f'MACE, GROUP {str(v)}: {group_mace:.4f}')
+
+  mace = calculate_mace(
+    test_outputs['y_pred_prob'], 
+    test_outputs['y_soc_cf_prob']
+  )
+  logger.info(f'GLOBAL MACE: {mace:.4f}')
 
   ####
   logger.info(f'Test Accuracy: {perf_metrics['accuracy']:.4f}')
-  logger.info(f'Test AUC: {perf_metrics['roc_auc']:.4f}')
+  logger.info(f'Test ROC-AUC: {perf_metrics['roc_auc']:.4f}')
+  logger.info(f'Test AUPRC: {perf_metrics['auprc']:.4f}')
   logger.info(f'Test Brier Score: {perf_metrics['brier_score']:.4f}')
   logger.info(f'Test False Negative Rate: {perf_metrics['fnr']:.4f}')
   logger.info(f'Test False Positive Rate: {perf_metrics['fpr']:.4f}')

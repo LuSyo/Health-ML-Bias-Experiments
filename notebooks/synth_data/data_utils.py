@@ -3,91 +3,40 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from typing import Tuple, cast
 
-def proportion_preserving_sampling(df, strat_cols, n_train, n_test, seed=42):
-  """
-  Sub-samples the population while strictly preserving the joint distribution of S, age_bin, and outcome_Y.
-  """
-  
-  proportions = df.groupby(strat_cols).size() / len(df)
-  
-  test_subsets = []
-  train_subsets = []
-  test_ratio = n_test / (n_test + n_train)
-
-  grouped_df = df.groupby(strat_cols)
-  
-  # Sample from each group according to its population weight
-  for strata, prop in proportions.items():
-    count_test = int(np.ceil(prop * n_test))
-    count_train = int(np.ceil(prop * n_train))
-
-    try:
-      strata_df = grouped_df.get_group(strata)
-    except KeyError:
-      continue
-    
-    max_test = int(np.floor(len(strata_df)*test_ratio))
-    
-    test_subset = strata_df.sample(n=min(count_test, max_test), replace=False, random_state=seed)
-    test_subsets.append(test_subset)
-
-    remaining_strata = strata_df.drop(test_subset.index)
-    train_subset = strata_df.sample(n=min(count_train, len(remaining_strata)), replace=False, random_state=seed)
-    train_subsets.append(train_subset)
-
-  train_out = pd.concat(train_subsets) if train_subsets else pd.DataFrame(columns=grouped_df.columns)
-  test_out = pd.concat(test_subsets) if test_subsets else pd.DataFrame(columns=grouped_df.columns)
-  
-  return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
-
-def sample_stratified_class(population, class_label, n_train, n_test, strat_cols, proportions, class_val, seed):
-  """
-  Samples a class by matching given strata proportions and target class sampling size
-  """
-  class_df = population[population[class_label] == class_val]
-  # print(class_df.head())
-  test_subsets = []
-  train_subsets = []
-  test_ratio = n_test / (n_test + n_train)
-
-  grouped_class = class_df.groupby(strat_cols)
-
-  for strata, prop in proportions.items():
-    count_test = int(np.round(prop * n_test))
-    count_train = int(np.round(prop * n_train))
-
-    try:
-      strata_df = grouped_class.get_group(strata)
-    except KeyError:
-      continue
-
-    max_test = int(np.floor(len(strata_df)*test_ratio))
-    
-    test_subset = strata_df.sample(n=min(count_test, max_test), replace=False, random_state=seed)
-    test_subsets.append(test_subset)
-
-    remaining_strata = strata_df.drop(test_subset.index)
-    train_subset = strata_df.sample(n=min(count_train, len(remaining_strata)), replace=False, random_state=seed)
-    train_subsets.append(train_subset)
-
-  train_out = pd.concat(train_subsets) if train_subsets else pd.DataFrame(columns=class_df.columns)
-  test_out = pd.concat(test_subsets) if test_subsets else pd.DataFrame(columns=class_df.columns)
-  
-  return train_out.reset_index(drop=True), test_out.reset_index(drop=True)
-
-def class_balanced_sampling(df, class_label, strat_cols, n_train, n_test, seed):
+def class_balanced_sampling(df, class_label, n_train, n_test, seed):
+  cases = df[df[class_label] == 1]
+  controls = df[df[class_label] == 0]
 
   n_train_per_class = n_train // 2
   n_test_per_class = n_test // 2
 
-  strat_proportions = df.groupby(strat_cols).size() / len(df)
+  train_cases, test_cases = cast(
+    Tuple[pd.DataFrame, pd.DataFrame],
+    train_test_split(
+      cases, 
+      train_size=n_train_per_class, 
+      test_size=n_test_per_class, 
+      random_state=seed,
+      shuffle=True
+    ))
 
-  train_cases_sampled, test_cases_sampled = sample_stratified_class(df, class_label, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=1, seed=seed)
+  train_controls, test_controls = cast(
+    Tuple[pd.DataFrame, pd.DataFrame],
+    train_test_split(
+      controls, 
+      train_size=n_train_per_class, 
+      test_size=n_test_per_class, 
+      random_state=seed,
+      shuffle=True
+    ))
 
-  train_controls_sampled, test_controls_sampled, = sample_stratified_class(df, class_label, n_train_per_class, n_test_per_class, strat_cols, strat_proportions, class_val=0, seed=seed)
+  df_train = pd.concat([train_cases, train_controls]).sample(frac=1, random_state=seed)
+  df_test = pd.concat([test_cases, test_controls]).sample(frac=1, random_state=seed)
 
-  return pd.concat([train_cases_sampled, train_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True), pd.concat([test_cases_sampled, test_controls_sampled]).sample(frac=1, random_state=seed).reset_index(drop=True)
+  return df_train.reset_index(drop=True), df_test.reset_index(drop=True)
 
 def simulate_selection_bias(df, n_train, n_test, seed=4):
   """
