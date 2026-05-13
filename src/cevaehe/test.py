@@ -249,25 +249,17 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
       x_corr = torch.tensor(batch_df[col_corr].values, dtype=torch.float32).to(device)
       s_bio = torch.tensor(batch_df[col_sens].values, dtype=torch.float32).to(device)
       s_soc = s_bio.clone().to(device)
-      y = torch.tensor(batch_df[target_name].values, dtype=torch.float32).view(-1, 1).to(device)
 
       ## INFERENCE PASS 
       # To generate latent variable samples and counterfactual features
       # Using y=None to invoke inference encoders q(u|x, s)
       mu_c_inf, logvar_c_inf, mu_d_inf, logvar_d_inf = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)        
       
-      _, _, _, x_desc_cf, x_corr_cf, *_ = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
+      _, _, _, x_desc_cf, x_corr_cf, _, _, y_full_cf_logits = model.decode(mu_d_inf, mu_c_inf, x_ind, s_bio, s_soc)
 
       u_c_samples = model.sample_latent(mu_c_inf, logvar_c_inf, m_samples)
       u_d_samples = model.sample_latent(mu_d_inf, logvar_d_inf, m_samples)  
 
-      ## ABDUCTION PASS
-      # To generate counterfactual outcome for IECO Ground Truth
-      # Using y=y to invoke adbuction encoders q(u|x, s, y)
-      mu_c_abd, _, mu_d_abd, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=y)
-      
-      # Get Sociological Counterfactual Outcome Y'
-      _, _, _, _, _, _, _, y_full_cf_logits = model.decode(mu_d_abd, mu_c_abd, x_ind, s_bio, s_soc)
       y_full_cf_prob = torch.sigmoid(y_full_cf_logits)
 
       # DATASETS CONSTRUCTION

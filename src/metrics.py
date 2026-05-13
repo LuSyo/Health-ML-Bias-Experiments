@@ -14,7 +14,7 @@ def calculate_performance_metrics(y_true, y_pred, y_prob):
         'brier_score': brier_score_loss(y_true, y_prob)
     }
 
-def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred_prob=None, threshold=0.5):
+def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_pred_prob=None):
     group_0 = sens == 0
     group_1 = sens == 1
 
@@ -44,33 +44,25 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_prob=None, y_cf_pred
         "brier_score_1": perf_metrics_1['brier_score']
     }
 
-    if y_cf_prob is not None and y_cf_pred_prob is not None:
-        ieco_mace_0, _ = calculate_ieco_mace(
+    if y_cf_pred_prob is not None:
+        strat_metrics['cf_harm_0'], strat_metrics['cf_harm_pos_0'], strat_metrics['cf_harm_neg_0'] = calculate_counterfactual_harm(
             y_true[group_0],
-            y_cf_prob[group_0],
             y_pred_prob[group_0],
-            y_cf_pred_prob[group_0],
-            threshold=threshold
+            y_cf_pred_prob[group_0]
         )
-        ieco_mace_1, _ = calculate_ieco_mace(
+        strat_metrics['cf_harm_1'], strat_metrics['cf_harm_pos_1'], strat_metrics['cf_harm_neg_1'] = calculate_counterfactual_harm(
             y_true[group_1],
-            y_cf_prob[group_1],
             y_pred_prob[group_1],
-            y_cf_pred_prob[group_1],
-            threshold=threshold
+            y_cf_pred_prob[group_1]
         )
-        strat_metrics['ieco_mace_0'] = ieco_mace_0
-        strat_metrics['ieco_mace_1'] = ieco_mace_1
-
 
     return strat_metrics
 
-def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, patient_index, threshold):
+def avg_perf_per_patient(y_true, y_pred_prob, y_cf_pred_prob, sens, patient_index, threshold):
     test_results = pd.DataFrame({
         'patient_index': patient_index,
         'y_true': y_true,
         'y_pred_prob': y_pred_prob,
-        'y_cf_prob': y_cf_prob,
         'y_cf_pred_prob': y_cf_pred_prob,
         'sens': sens
       })
@@ -85,21 +77,17 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_prob, y_cf_pred_prob, sens, p
         avg_results['y_pred_prob']
     )
 
-    global_ieco_mace, _ = calculate_ieco_mace(
+    global_perf['cf_harm'], global_perf['cf_harm_pos'], global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
         avg_results['y_true'],
-        avg_results['y_cf_prob'],
         avg_results['y_pred_prob'],
-        avg_results['y_cf_pred_prob'],
-        threshold=threshold
+        avg_results['y_cf_pred_prob']
     )
-    global_perf['ieco_mace'] = global_ieco_mace
 
     strat_perf = stratified_perf(
         avg_results['y_true'],
         y_pred_avg,
         avg_results['y_pred_prob'],
         avg_results['sens'],
-        avg_results['y_cf_prob'],
         avg_results['y_cf_pred_prob']
     )
 

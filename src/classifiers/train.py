@@ -77,7 +77,8 @@ def set_class_threshold(y_true, y_probs):
     Set the classification threshold based on negative class prevalence
   """
   neg_class_prevalence = 1 - y_true.sum()/len(y_true)
-  return np.quantile(y_probs, neg_class_prevalence)
+  # return np.quantile(y_probs, neg_class_prevalence)
+  return y_true.sum()/len(y_true)
 
 def find_threshold_at_target_ppv(y_true, y_probs, target_ppv):
   """

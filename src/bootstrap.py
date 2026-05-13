@@ -10,9 +10,8 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from config import Config
 from cevaehe.model import CEVAEHE
 from classifiers.train import initial_hyperparam_tuning, train_random_forest
-from cevaehe.causal_validation import calculate_ieco_mace
 from utils import parse_args, load_config, set_global_seeds, setup_logger
-from metrics import calculate_performance_metrics, get_grouped_roc_curve, stratified_perf, avg_perf_per_patient,get_interp_tpr
+from metrics import calculate_performance_metrics, get_grouped_roc_curve, stratified_perf, avg_perf_per_patient, calculate_counterfactual_harm
 from plots import stratified_roc_curves
 
 def main():
@@ -185,14 +184,16 @@ def main():
 
       del _
 
-      # TODO: run the CEVAEHE on the test set
-
       #BASELINE PERF METRICS
       baseline_global_perf = calculate_performance_metrics(y_test, y_pred, y_pred_proba)
       baseline_global_perf['threshold'] = baseline_threshold
-      baseline_global_ieco_mace, _ = calculate_ieco_mace(y_test, y_cf_test, y_pred_proba, y_cf_pred_proba, threshold=baseline_threshold)
-      baseline_global_perf['ieco_mace'] = baseline_global_ieco_mace
-      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_test, y_cf_pred_proba, threshold=baseline_threshold)
+      baseline_global_perf['cf_harm'], baseline_global_perf['cf_harm_pos'], baseline_global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
+        y_test,
+        y_pred_proba,
+        y_cf_pred_proba
+      )
+      
+      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_pred_proba)
       baseline_metrics.append(baseline_global_perf | baseline_strat_perf)
 
       # FAIR MODELS PERF METRICS
@@ -201,7 +202,6 @@ def main():
       fair_0_global_perf, fair_0_strat_perf, fair_0_roc_curves = avg_perf_per_patient(
         fair_y_test, 
         fair_0_y_pred_proba, 
-        fair_y_cf_test,
         fair_0_y_cf_pred_proba,
         fair_s_ref.values, 
         patient_indexes,
@@ -212,7 +212,6 @@ def main():
       fair_1_global_perf, fair_1_strat_perf, fair_1_roc_curves = avg_perf_per_patient(
         fair_y_test, 
         fair_1_y_pred_proba,  
-        fair_y_cf_test,
         fair_1_y_cf_pred_proba,
         fair_s_ref.values, 
         patient_indexes,
@@ -223,7 +222,6 @@ def main():
       fair_2_global_perf, fair_2_strat_perf, fair_2_roc_curves = avg_perf_per_patient(
         fair_y_test, 
         fair_2_y_pred_proba,  
-        fair_y_cf_test,
         fair_2_y_cf_pred_proba,
         fair_s_ref.values, 
         patient_indexes,
@@ -234,7 +232,6 @@ def main():
       fair_3_global_perf, fair_3_strat_perf, fair_3_roc_curves = avg_perf_per_patient(
         fair_y_test, 
         fair_3_y_pred_proba,  
-        fair_y_cf_test,
         fair_3_y_cf_pred_proba,
         fair_s_ref.values, 
         patient_indexes,
