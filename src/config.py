@@ -24,6 +24,7 @@ class Config:
   DISTILL_WARM_UP = 0
   KL_WARM_UP = 0
   TC_WARM_UP = 0
+  CF_INVAR_WARM_UP = 0
   DISC_STEP = 5
 
   # CEVAE-HE loss scaling factors

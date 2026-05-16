@@ -5,11 +5,12 @@ import gc
 
 from config import Config
 from utils import parse_args, load_config, set_global_seeds, setup_logger
-from cevaehe_new.data_loader import make_bucketed_loader
-from cevaehe_new.model import CEVAEHE
-from cevaehe_new.train import train_cevaehe
-from cevaehe_new.test import test_ceveahe
-from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve
+from cevaehe.data_loader import make_bucketed_loader
+from cevaehe.model import CEVAEHE
+from cevaehe.train import train_cevaehe
+from cevaehe.test import generate_fair_dataset, test_ceveahe
+from plots import train_val_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, training_accuracy_curve, u_clustering_analysis, grad_curve
+from metrics import get_cca
 
 def main():
   args = parse_args()
@@ -34,13 +35,13 @@ def main():
   logger.info(f'Distillation Warm-up: {args.distill_warm_up}')
   logger.info(f'TC Loss Warm-up: {args.tc_warm_up}')
   logger.info(f'KL Warm-up: {args.kl_warm_up}')
-  logger.info(f'CF Invariance Warm-up: {args.cf_invar_warm_up}')
   logger.info(f'Hidden layers dimension: {args.h_dim}')
   logger.info(f'Activation function: {args.act_fn}')
+  logger.info(f'Corr. recon. loss alpha: {args.corr_a}')
   logger.info(f'Desc. recon. loss alpha: {args.desc_a}')
   logger.info(f'Prediction loss alpha: {args.pred_a}')
+  logger.info(f'Fair loss beta: {args.fair_b}')
   logger.info(f'TC loss beta: {args.tc_b}')
-  logger.info(f'Latent CF Invariance loss beta: {args.cf_invar_b}')
 
   logger.info('='*30)
 
@@ -58,12 +59,16 @@ def main():
                                                                  batch_size=args.batch_size, seed=args.seed)
 
     # Feature metadata
-    indcorr_meta = feature_mapping['indcorr']
+    ind_meta = feature_mapping['ind']
     desc_meta = feature_mapping['desc']
+    corr_meta = feature_mapping['corr']
     sens_meta = feature_mapping['sens']
 
-    model = CEVAEHE(indcorr_meta, desc_meta, sens_meta, args=args)
+    model = CEVAEHE(ind_meta, desc_meta, corr_meta, sens_meta, 
+                  args=args)
     
+    
+    logger.info(f'U_corr dimension: {model.uc_dim}')
     logger.info(f'U_desc dimension: {model.ud_dim}')
     
     training_log, train_results = train_cevaehe(
@@ -78,56 +83,55 @@ def main():
 
     training_metrics = pd.DataFrame(training_log)
 
-    train_val_recon_loss_fig = train_val_recon_loss_curve(training_metrics)
-    train_val_recon_loss_fig.savefig(f'{results_path}/train_val_recon_loss_curve.png', bbox_inches='tight')
-
-    train_val_disc_acc_fig = disc_acc_train_val_curve(training_metrics)
-    train_val_disc_acc_fig.savefig(f'{results_path}/train_val_disc_acc_fig.png', bbox_inches='tight')
-
+    train_val_loss_fig = train_val_loss_curve(training_metrics)
+    train_val_loss_fig.savefig(f'{results_path}/train_val_loss_curve.png', bbox_inches='tight')
     disc_tc_loss_fig = disc_tc_loss_curve(training_metrics)
     disc_tc_loss_fig.savefig(f'{results_path}/disc_tc_loss_curve.png', bbox_inches='tight')
-
     all_VAE_losses_fig = all_VAE_losses_curve(training_metrics)
     all_VAE_losses_fig.savefig(f'{results_path}/VAE_losses_curve.png', bbox_inches='tight')
-
+    training_accuracy_fig = training_accuracy_curve(training_metrics)
+    training_accuracy_fig.savefig(f'{results_path}/training_accuracy_curve.png', bbox_inches='tight')
     train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
     train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
 
-    test_outputs, _= test_ceveahe(model, test_loader, logger, args)
+    test_outputs, _, strat_perf_metrics = test_ceveahe(model, test_loader, logger, args)
 
     test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
 
+    # save stratified perf metrics as a markdown table
+    strat_perf_summary = pd.DataFrame({
+        'group': [0, 1],
+        'accuracy': [strat_perf_metrics['accuracy_0'], strat_perf_metrics['accuracy_1']],
+        'roc_auc': [strat_perf_metrics['roc_auc_0'], strat_perf_metrics['roc_auc_1']],
+        'fnr': [strat_perf_metrics['fnr_0'], strat_perf_metrics['fnr_1']],
+        'fpr': [strat_perf_metrics['fpr_0'], strat_perf_metrics['fpr_1']],
+        'brier_score': [strat_perf_metrics['brier_score_0'], strat_perf_metrics['brier_score_1']],
+    })
     if train_results is not None:
-      u_desc_mu_0 = np.array(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].to_list()).mean()
-      logvars_0 = np.array(train_results.loc[train_results['x_sens'] == 0, 'logvar_desc'].to_list())
+      logvars_0 = np.array(train_results.loc[train_results['sens'] == 0, 'logvar_desc'].to_list())
       u_desc_var_0 = np.exp(logvars_0).mean()
 
-      u_desc_mu_1 = np.array(train_results.loc[train_results['x_sens'] == 1, 'mu_desc'].to_list()).mean()
-      logvars_1 = np.array(train_results.loc[train_results['x_sens'] == 1, 'logvar_desc'].to_list())
+      logvars_1 = np.array(train_results.loc[train_results['sens'] == 1, 'logvar_desc'].to_list())
       u_desc_var_1 = np.exp(logvars_1).mean()
 
-      strat_latent_dist_params = pd.DataFrame({
-        "S Group": [0, 1],
-        "Udesc Mean": [u_desc_mu_0, u_desc_mu_1],
-        "Udesc Variance": [u_desc_var_0, u_desc_var_1]
-      })
+      strat_perf_summary['u_desc_var'] = [u_desc_var_0, u_desc_var_1]
 
-      strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
+    strat_perf_summary.to_markdown(f'{results_path}/stratified_perf_metrics.txt', index=False)
 
     # Generate counterfactual and latent space datasets (fair dataset)
-    # logger.info('Saving latent and counterfactual datasets...')
-    # datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
-    # os.makedirs(datasets_path, exist_ok=True)
+    logger.info('Saving latent and counterfactual datasets...')
+    datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
+    os.makedirs(datasets_path, exist_ok=True)
 
-    # counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
-    # counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
-    # latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
+    counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
+    counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
+    latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
 
-    # del counterfactuals_df, latent_spaces_df
+    del counterfactuals_df, latent_spaces_df
 
-    # gc.collect()
+    gc.collect()
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)

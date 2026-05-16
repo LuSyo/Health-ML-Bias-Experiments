@@ -568,7 +568,7 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_corr, logvar_corr) + 1.5*self.kl_loss(mu_desc, logvar_desc)
 
     # ---- TC loss
-    mu_desc_2, logvar_desc_2 = self. encode_desc_only(x_desc_2, x_ind_2, x_sens_2, y_2)
+    mu_desc_2, logvar_desc_2 = self.encode_desc_only(x_desc_2, x_ind_2, x_sens_2, y_2)
     u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
     tc_L = self.tc_loss(u_desc, s_soc, u_desc_2, x_sens_2)
 
@@ -606,7 +606,8 @@ class CEVAEHE(nn.Module):
       desc_recon_L, corr_recon_L, y_recon_L, \
       kl_weight*kl_L, tc_weight*tc_L, self.args.fair_b*cf_invar_L, distill_weight*distill_L, u_ind_weight*u_redun_L,\
       y_pred_prob.detach(), \
-      mu_desc.detach(), mu_corr.detach(), mu_desc_inf.detach(), mu_corr_inf.detach(), mu_desc_2.detach()
+      u_desc.detach(), u_corr.detach(), u_desc_inf.detach(), u_corr_inf.detach(), u_desc_2.detach(),\
+      logvar_desc.detach()
 
 class EarlyStopping:
   def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10):
