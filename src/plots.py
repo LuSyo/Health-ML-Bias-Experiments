@@ -104,11 +104,11 @@ def training_accuracy_curve(training_metrics, show=False):
 
 def disc_acc_train_val_curve(training_metrics, show=False):
   fig, ax = plt.subplots(figsize=(8, 3))
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_acc'], ax=ax, label="Training Discriminator Accuracy", errorbar=None)
-  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_disc_acc"], ax=ax, label='Val Discriminator Accuracy', errorbar=None)
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_bal_acc'], ax=ax, label="Training", errorbar=None)
+  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_disc_bal_acc"], ax=ax, label='Validation', errorbar=None)
   plt.legend()
   plt.xlabel('Epoch')
-  plt.ylabel('Accuracy')
+  plt.ylabel('Discriminator Balanced Accuracy')
 
   if show: plt.show()
 

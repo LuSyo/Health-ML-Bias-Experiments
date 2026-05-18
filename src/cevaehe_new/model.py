@@ -86,7 +86,7 @@ class CEVAEHE(nn.Module):
 
     # Discriminator
     self.discriminator = nn.Sequential(
-      nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
+      nn.Linear(self.ud_dim, self.h_dim),
       nn.LeakyReLU(0.2, True),
       nn.Linear(self.h_dim, self.h_dim),
       nn.LeakyReLU(0.2, True),
@@ -94,6 +94,17 @@ class CEVAEHE(nn.Module):
       nn.LeakyReLU(0.2, True),
       nn.Linear(self.h_dim, 1)
     )
+
+    # # Discriminator
+    # self.discriminator = nn.Sequential(
+    #   nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
+    #   nn.LeakyReLU(0.2, True),
+    #   nn.Linear(self.h_dim, self.h_dim),
+    #   nn.LeakyReLU(0.2, True),
+    #   nn.Linear(self.h_dim, self.h_dim),
+    #   nn.LeakyReLU(0.2, True),
+    #   nn.Linear(self.h_dim, 1)
+    # )
 
     self.init_params()
 
@@ -261,7 +272,7 @@ class CEVAEHE(nn.Module):
   def sample_latent(self, mu, logvar, m_samples):
     samples = torch.stack([self.reparameterize(mu, logvar) for _ in range(m_samples)], dim=1)
 
-    return samples.cpu().numpy()
+    return samples
   
   def reconstruction_loss(self, v_pred, v, v_meta):
     '''
@@ -308,76 +319,120 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
 
-  def tc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
+  def tc_loss(self, u_desc):
     """
     Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
     """
-    sample_size = u_desc.size(0)
+    
+    disc_logits = self.discriminate(u_desc)
 
-    # Discriminator at chance level
-    target_chance = torch.full((sample_size,), 0.5, dtype=torch.float).to(self.device)
+    target_uncertain = torch.full_like(disc_logits, 0.5)
 
-    # process sensitive feature
-    x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
-    x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
-
-    ## VAE LOSS
-    # permuted samples
-    permuted_indices = np.random.permutation(u_desc.size(0))
-    u_desc_permuted = u_desc_2[permuted_indices]
-
-    input_disc = torch.cat((u_desc, x_sens_p), dim=1)
-    disc_logit_real = self.discriminate(input_disc)
-
-    input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
-    disc_logit_perm = self.discriminate(input_disc_perm)
-
-    tc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_chance)\
-          + nn.BCEWithLogitsLoss()(disc_logit_perm, target_chance)
+    tc_L = nn.BCEWithLogitsLoss()(disc_logits, target_uncertain)
     
     return tc_L
 
-  def disc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
+  def disc_loss(self, u_desc, x_sens):
     """
     Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
     """
-    sample_size = u_desc.size(0)
 
-    # Discriminator prediction targets
-    target_real = torch.full((sample_size,), 0.9, dtype=torch.float).to(self.device)
-    target_perm = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
+    x_sens = x_sens.squeeze()
 
-    # process sensitive feature
-    x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
-    x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
-
-    ## DISCRIMINATOR TRAINING
-    # detach tensors
+    ## DISCRIMINATOR FORWARD PASS
     u_desc_det = u_desc.detach()
-    u_desc_2_det = u_desc_2.detach()
+    disc_logits = self.discriminate(u_desc_det)
 
-    # permuted samples
-    permuted_indices = np.random.permutation(u_desc_det.size(0))
-    u_desc_permuted = u_desc_2_det[permuted_indices]
+    # pos_weight based on X_sens imbalance
+    num_pos = (x_sens == 1.0).sum().float()
+    num_neg = (x_sens == 0.0).sum().float()
+    pos_weight = (num_neg / (num_pos + 1e-5)).clamp(min=1.0)
 
-    input_disc = torch.cat((u_desc_det, x_sens_p), dim=1)
-    disc_logit_real = self.discriminate(input_disc)
+    # Weighted Loss Function
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    disc_L = criterion(disc_logits, x_sens.float())
 
-    input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
-    disc_logit_perm = self.discriminate(input_disc_perm)
-
-    # Discriminator Loss
-    disc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_real)\
-            + nn.BCEWithLogitsLoss()(disc_logit_perm, target_perm)
-
-    # Dicriminator binary classification accuracy
-    preds_real = (disc_logit_real > 0.0).float()
-    preds_perm = (disc_logit_perm > 0.0).float()
-    correct_real = (preds_real == 1.0).sum().item()
-    correct_perm = (preds_perm == 0.0).sum().item()
-    disc_acc = (correct_real + correct_perm) / (2 * sample_size)
+    # Tracking Balanced Accuracy
+    preds = (disc_logits > 0.0).float()
+    tp = ((preds == 1.0) & (x_sens == 1.0)).sum().item()
+    tn = ((preds == 0.0) & (x_sens == 0.0)).sum().item()
     
-    return disc_L, disc_acc
+    sensitivity = tp / (num_pos.item() + 1e-5)
+    specificity = tn / (num_neg.item() + 1e-5)
+    disc_balanced_acc = (sensitivity + specificity) / 2
+    
+    return disc_L, disc_balanced_acc
+
+  # def tc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
+  #   """
+  #   Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
+  #   """
+  #   sample_size = u_desc.size(0)
+
+  #   # Discriminator at chance level
+  #   target_chance = torch.full((sample_size,), 0.5, dtype=torch.float).to(self.device)
+
+  #   # process sensitive feature
+  #   x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
+  #   x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
+
+  #   ## VAE LOSS
+  #   # permuted samples
+  #   permuted_indices = np.random.permutation(u_desc.size(0))
+  #   u_desc_permuted = u_desc_2[permuted_indices]
+
+  #   input_disc = torch.cat((u_desc, x_sens_p), dim=1)
+  #   disc_logit_real = self.discriminate(input_disc)
+
+  #   input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
+  #   disc_logit_perm = self.discriminate(input_disc_perm)
+
+  #   tc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_chance)\
+  #         + nn.BCEWithLogitsLoss()(disc_logit_perm, target_chance)
+    
+  #   return tc_L
+
+  # def disc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
+  #   """
+  #   Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
+  #   """
+  #   sample_size = u_desc.size(0)
+
+  #   # Discriminator prediction targets
+  #   target_real = torch.full((sample_size,), 0.9, dtype=torch.float).to(self.device)
+  #   target_perm = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
+
+  #   # process sensitive feature
+  #   x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
+  #   x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
+
+  #   ## DISCRIMINATOR TRAINING
+  #   # detach tensors
+  #   u_desc_det = u_desc.detach()
+  #   u_desc_2_det = u_desc_2.detach()
+
+  #   # permuted samples
+  #   permuted_indices = np.random.permutation(u_desc_det.size(0))
+  #   u_desc_permuted = u_desc_2_det[permuted_indices]
+
+  #   input_disc = torch.cat((u_desc_det, x_sens_p), dim=1)
+  #   disc_logit_real = self.discriminate(input_disc)
+
+  #   input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
+  #   disc_logit_perm = self.discriminate(input_disc_perm)
+
+  #   # Discriminator Loss
+  #   disc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_real)\
+  #           + nn.BCEWithLogitsLoss()(disc_logit_perm, target_perm)
+
+  #   # Dicriminator binary classification accuracy
+  #   preds_real = (disc_logit_real > 0.0).float()
+  #   preds_perm = (disc_logit_perm > 0.0).float()
+  #   correct_real = (preds_real == 1.0).sum().item()
+  #   correct_perm = (preds_perm == 0.0).sum().item()
+  #   disc_acc = (correct_real + correct_perm) / (2 * sample_size)
+    
+  #   return disc_L, disc_acc
 
 
   def calculate_loss(self, x_indcorr, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight):
@@ -431,9 +486,7 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_desc, logvar_desc)
 
     # TC LOSS
-    mu_desc_2, logvar_desc_2 = self.encode(x_desc_2, x_sens_2, y_2)
-    u_desc_2 = self.reparameterize(mu_desc_2, logvar_desc_2)
-    tc_L = self.tc_loss(u_desc, x_sens, u_desc_2, x_sens_2)
+    tc_L = self.tc_loss(u_desc)
 
     # LATENT COUNTERFACTUAL INVARIANCE LOSS
     x_sens_flipped = 1 - x_sens
@@ -470,8 +523,7 @@ class CEVAEHE(nn.Module):
       "u_desc": u_desc.detach(),
       "mu_desc": mu_desc.detach(),
       "logvar_desc": logvar_desc.detach(),
-      "u_desc_inf": u_desc_inf.detach(),
-      "u_desc_2": u_desc_2.detach()
+      "u_desc_inf": u_desc_inf.detach()
     }
   
 class EarlyStopping:

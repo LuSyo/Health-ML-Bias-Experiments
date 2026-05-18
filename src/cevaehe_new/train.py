@@ -57,7 +57,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       'tc_L': [],
       'cf_invar_L': [],
       'disc_L': [],
-      'disc_acc': [],
+      'disc_bal_acc': [],
       'distill_L': []
     }
 
@@ -97,11 +97,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       # Discriminator Loss
       discrim_optimiser.zero_grad()
       if i % args.disc_step == 0:
-        disc_L, disc_acc = model.disc_loss(
+        disc_L, disc_bal_acc = model.disc_loss(
           vae_outputs["u_desc"], 
-          x_sens, 
-          vae_outputs["u_desc_2"], 
-          x_sens_2
+          x_sens
         )
 
         # Discriminator backpropagation
@@ -116,11 +114,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         discrim_optimiser.step()
       else:
         with torch.no_grad():
-          disc_L, disc_acc = model.disc_loss(
+          disc_L, disc_bal_acc = model.disc_loss(
               vae_outputs["u_desc"], 
-              x_sens, 
-              vae_outputs["u_desc_2"], 
-              x_sens_2
+              x_sens
             )
       
       main_optimiser.step()
@@ -148,7 +144,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       epoch_metrics['disc_L'].append(disc_L.item())
 
       # DISC ACCURACY
-      epoch_metrics['disc_acc'].append(disc_acc)
+      epoch_metrics['disc_bal_acc'].append(disc_bal_acc)
 
     avg_train_loss = np.mean(epoch_metrics['total_vae_loss'])
     training_log.append({'avg_train_loss': avg_train_loss})
@@ -162,7 +158,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_disc_input_grad'] = np.mean(epoch_grad_norms['disc_input_grad_norm'])
     training_log[-1]['avg_disc_output_grad'] = np.mean(epoch_grad_norms['disc_output_grad_norm'])
     training_log[-1]['avg_desc_grad'] = np.mean(epoch_grad_norms['enc_desc_grad_norm'])
-    training_log[-1]['avg_disc_acc'] = np.mean(epoch_metrics["disc_acc"])
+    training_log[-1]['avg_disc_bal_acc'] = np.mean(epoch_metrics["disc_bal_acc"])
 
     last_train_results = pd.DataFrame({
       'y_true': np.concatenate(all_y_true).flatten(),
@@ -176,7 +172,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     # VALIDATION
     model.eval()
     val_recon_losses = []
-    val_disc_accuracies = []
+    val_disc_bal_accuracies = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
 
@@ -191,17 +187,15 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
         val_recon_losses.append((vae_outputs["desc_recon_L"] + vae_outputs["y_recon_L"]).item())
 
-        _, val_disc_acc = model.disc_loss(
+        _, val_disc_bal_acc = model.disc_loss(
           vae_outputs["u_desc"], 
-          x_sens, 
-          vae_outputs["u_desc_2"], 
-          x_sens_2
+          x_sens
         )
-        val_disc_accuracies.append(val_disc_acc)
+        val_disc_bal_accuracies.append(val_disc_bal_acc)
 
     avg_val_recon_loss = np.mean(val_recon_losses)
     training_log[-1]['avg_val_recon_loss'] = avg_val_recon_loss
-    training_log[-1]['avg_val_disc_acc'] = np.mean(val_disc_accuracies)
+    training_log[-1]['avg_val_disc_bal_acc'] = np.mean(val_disc_bal_accuracies)
 
     checkpoint_dict = {
       'epoch': epoch,
@@ -211,15 +205,15 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       'args': args
     }
 
-    # early_stopping(avg_val_recon_loss, training_log[-1]['avg_tc_loss'], checkpoint_dict, epoch)
+    early_stopping(avg_val_recon_loss, training_log[-1]['avg_tc_loss'], checkpoint_dict, epoch)
     
-    # if early_stopping.early_stop:
-    #   logger.info(f"Early stopping triggered at epoch {epoch}")
-    #   break
+    if early_stopping.early_stop:
+      logger.info(f"Early stopping triggered at epoch {epoch}")
+      break
   
-  # logger.info(f"Loading best weights from {checkpoint_file}")
-  # best_state = torch.load(checkpoint_file, weights_only=True)
-  # model.load_state_dict(best_state['model_state_dict'])
-  # logger.info(f'model trained for {best_state['epoch'] + 1} epochs')
+  logger.info(f"Loading best weights from {checkpoint_file}")
+  best_state = torch.load(checkpoint_file, weights_only=True)
+  model.load_state_dict(best_state['model_state_dict'])
+  logger.info(f'model trained for {best_state['epoch'] + 1} epochs')
   
   return training_log, last_train_results

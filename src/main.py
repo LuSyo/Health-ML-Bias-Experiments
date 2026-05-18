@@ -8,7 +8,7 @@ from utils import parse_args, load_config, set_global_seeds, setup_logger
 from cevaehe_new.data_loader import make_bucketed_loader
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.train import train_cevaehe
-from cevaehe_new.test import test_ceveahe
+from cevaehe_new.test import test_ceveahe, generate_fair_dataset
 from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve
 
 def main():
@@ -116,18 +116,25 @@ def main():
 
       strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
 
+      
+
     # Generate counterfactual and latent space datasets (fair dataset)
-    # logger.info('Saving latent and counterfactual datasets...')
-    # datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
-    # os.makedirs(datasets_path, exist_ok=True)
+    logger.info('Saving latent and counterfactual datasets...')
+    datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
+    os.makedirs(datasets_path, exist_ok=True)
 
-    # counterfactuals_df, latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
-    # counterfactuals_df.to_csv(f'{datasets_path}/counterfactuals.csv', index=False)
-    # latent_spaces_df.to_csv(f'{datasets_path}/latent_spaces.csv', index=False)
+    test_counterfactuals_df, test_latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
+    test_counterfactuals_df.to_csv(f'{datasets_path}/test_counterfactuals.csv', index=False)
+    test_latent_spaces_df.to_csv(f'{datasets_path}/test_latent_space.csv', index=False)
 
-    # del counterfactuals_df, latent_spaces_df
+    train_counterfactuals_df, train_latent_spaces_df = generate_fair_dataset(model, training_dataset, feature_mapping, args)
+    train_counterfactuals_df.to_csv(f'{datasets_path}/train_counterfactuals.csv', index=False)
+    train_latent_spaces_df.to_csv(f'{datasets_path}/train_latent_space.csv', index=False)
 
-    # gc.collect()
+    del test_counterfactuals_df, test_latent_spaces_df
+    del train_counterfactuals_df, train_latent_spaces_df
+
+    gc.collect()
 
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
