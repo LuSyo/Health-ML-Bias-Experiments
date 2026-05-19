@@ -42,8 +42,6 @@ def main():
   logger.info(f'TC loss beta: {args.tc_b}')
   logger.info(f'Latent CF Invariance loss beta: {args.cf_invar_b}')
 
-  logger.info('='*30)
-
   try:
     # Load the datasets
     training_dataset = pd.read_csv(Config.DATA_DIR + args.training_data)
@@ -52,10 +50,13 @@ def main():
     # Load the feature mapping
     feature_mapping = load_config(args.mapping)
 
-    # Data loaders
-    train_loader, val_loader, test_loader = make_bucketed_loader(training_dataset, feature_mapping,
-                                                                 test_size=0.2,
-                                                                 batch_size=args.batch_size, seed=args.seed)
+    # TRAINING Data loaders
+    train_loader, val_loader = make_bucketed_loader(
+      training_dataset, 
+      feature_mapping,
+      val_size=0.2,
+      batch_size=args.batch_size,
+      seed=args.seed)
 
     # Feature metadata
     indcorr_meta = feature_mapping['indcorr']
@@ -65,6 +66,7 @@ def main():
     model = CEVAEHE(indcorr_meta, desc_meta, sens_meta, args=args)
     
     logger.info(f'U_desc dimension: {model.ud_dim}')
+    logger.info('='*30)
     
     training_log, train_results = train_cevaehe(
       model,
@@ -93,11 +95,6 @@ def main():
     train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
     train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
 
-    test_outputs, _= test_ceveahe(model, test_loader, logger, args)
-
-    test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
-    test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
-
 
     if train_results is not None:
       u_desc_mu_0 = np.array(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].to_list()).mean()
@@ -116,7 +113,20 @@ def main():
 
       strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
 
-      
+    ### UNSEEN DATA: TEST RESULTS AND LATENT/CF GENERATION
+    
+    # TEST Data loader
+    test_loader, _ = make_bucketed_loader(
+      test_dataset, 
+      feature_mapping,
+      val_size=0,
+      batch_size=args.batch_size,
+      seed=args.seed)
+
+    test_outputs, _= test_ceveahe(model, test_loader, logger, args)
+
+    test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
+    test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
     # Generate counterfactual and latent space datasets (fair dataset)
     logger.info('Saving latent and counterfactual datasets...')

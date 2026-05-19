@@ -66,19 +66,19 @@ def KL_loss_curve(training_metrics, show=False):
 
 def all_VAE_losses_curve(training_metrics, show=False):
 
-  fig, axes = plt.subplots(5, 1,figsize=(8, 20))
+  fig, axes = plt.subplots(6, 1,figsize=(8, 20))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
                label="Effective X_desc Recon. Loss", ax=axes[0])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
-               label="Effective Y Pred. Loss", ax=axes[0])
+               label="Effective Y Pred. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], 
-               label="Effective KL Loss", ax=axes[1])
+               label="Effective KL Loss", ax=axes[2])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
-               label="Effective Distillation Loss", ax=axes[2])
+               label="Effective Distillation Loss", ax=axes[3])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_tc_loss'], 
-               label="Effective TC Loss", ax=axes[3])
+               label="Effective TC Loss", ax=axes[4])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_cf_invar_loss'], 
-               label="Effective Latent CF Invariance Loss", ax=axes[4])
+               label="Effective Latent CF Invariance Loss", ax=axes[5])
   
   for ax in axes:
     ax.minorticks_on()

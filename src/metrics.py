@@ -197,3 +197,13 @@ def calculate_counterfactual_harm(y_true, y_pred_prob, y_pred_cf_prob):
     balanced_harm = (harm_pos + harm_neg) / 2
 
     return balanced_harm, harm_pos, harm_neg
+
+def get_baseline_bce(target_np):
+    prevalence = np.mean(target_np)
+
+    if 0 < prevalence < 1:
+        baseline_bce = - (prevalence * np.log(prevalence) + (1 - prevalence) * np.log(1 - prevalence))
+    else:
+        baseline_bce = 0.6931
+
+    return baseline_bce, prevalence

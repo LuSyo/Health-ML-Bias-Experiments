@@ -319,10 +319,11 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
 
-  def tc_loss(self, u_desc):
+  def tc_loss(self, u_desc, x_sens):
     """
     Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
     """
+    x_sens = x_sens.squeeze()
     
     disc_logits = self.discriminate(u_desc)
 
@@ -337,29 +338,29 @@ class CEVAEHE(nn.Module):
     Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
     """
 
-    x_sens = x_sens.squeeze()
-
     ## DISCRIMINATOR FORWARD PASS
     u_desc_det = u_desc.detach()
     disc_logits = self.discriminate(u_desc_det)
 
+    target_sens = x_sens.float().view_as(disc_logits)
+
     # pos_weight based on X_sens imbalance
-    num_pos = (x_sens == 1.0).sum().float()
-    num_neg = (x_sens == 0.0).sum().float()
-    pos_weight = (num_neg / (num_pos + 1e-5)).clamp(min=1.0)
+    num_pos = (target_sens == 1.0).sum()
+    num_neg = (target_sens == 0.0).sum()
+    pos_weight = (num_neg / (num_pos + 1e-5))
 
     # Weighted Loss Function
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    disc_L = criterion(disc_logits, x_sens.float())
+    disc_L = criterion(disc_logits, target_sens)
 
     # Tracking Balanced Accuracy
     preds = (disc_logits > 0.0).float()
-    tp = ((preds == 1.0) & (x_sens == 1.0)).sum().item()
-    tn = ((preds == 0.0) & (x_sens == 0.0)).sum().item()
+    tp = ((preds == 1.0) & (target_sens == 1.0)).sum(dim=0).float()
+    tn = ((preds == 0.0) & (target_sens == 0.0)).sum(dim=0).float()
     
     sensitivity = tp / (num_pos.item() + 1e-5)
     specificity = tn / (num_neg.item() + 1e-5)
-    disc_balanced_acc = (sensitivity + specificity) / 2
+    disc_balanced_acc = ((sensitivity + specificity) / 2.0).mean().item()
     
     return disc_L, disc_balanced_acc
 
@@ -486,7 +487,7 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_desc, logvar_desc)
 
     # TC LOSS
-    tc_L = self.tc_loss(u_desc)
+    tc_L = self.tc_loss(u_desc, x_sens)
 
     # LATENT COUNTERFACTUAL INVARIANCE LOSS
     x_sens_flipped = 1 - x_sens

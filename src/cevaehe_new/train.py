@@ -5,10 +5,8 @@ import pandas as pd
 import torch
 import torch.optim as optim
 import os
-import gc
-import time
 from config import Config
-from metrics import calculate_performance_metrics
+from metrics import get_baseline_bce
 from cevaehe.model import EarlyStopping
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
@@ -43,6 +41,25 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
   training_log = []
   last_train_results = None
+
+  # BASELINE Y_RECON_L CEILING
+  train_y_np = train_loader.dataset.tensors[3].cpu().numpy()
+  y_baseline_bce, y_prevalence = get_baseline_bce(train_y_np)
+      
+  logger.info(f"Training target prevalence: {y_prevalence:.4f}")
+  logger.info(f"Training Baseline Y BCE (y_recon_L ceiling): {y_baseline_bce:.4f}")
+
+  # ADVERSERIAL LOSS ASYMPTOTES
+  train_s_np = train_loader.dataset.tensors[2].cpu().numpy()
+  s_prevalence = np.mean(train_s_np)
+  
+  tc_chance_floor = -np.log(0.5)
+  disc_chance_floor = 2.0 * (1.0 - s_prevalence) * np.log(2.0)
+
+  logger.info(f"Training Sensitive Attribute (S) Prevalence: {s_prevalence:.4f}")
+  logger.info(f"Expected VAE TC Loss floor: {tc_chance_floor:.4f}")
+  logger.info(f"Expected Discriminator Loss ceiling: {disc_chance_floor:.4f}")
+  logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
 
   for epoch in range(args.n_epochs):
     logger.info(f'Epoch {epoch}')

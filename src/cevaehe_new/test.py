@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import numpy as np
 import pandas as pd
+from metrics import get_baseline_bce
 from cevaehe_new.causal_validation import run_test_classifier
 
 def test_ceveahe(model, test_loader, logger, args):
@@ -14,6 +15,13 @@ def test_ceveahe(model, test_loader, logger, args):
     [], [], [], [], [], [], []
 
   all_x_desc_recon_logits = {}
+
+   # BASELINE Y_RECON_L
+  test_y_np = test_loader.dataset.tensors[3].cpu().numpy()
+  y_baseline_bce, y_prevalence = get_baseline_bce(test_y_np)
+      
+  logger.info(f"Test target prevalence: {y_prevalence:.4f}")
+  logger.info(f"Test Baseline BCE (y_recon_L ceiling): {y_baseline_bce:.4f}")
 
   with torch.no_grad():
     for batch in test_loader:
@@ -69,17 +77,35 @@ def test_ceveahe(model, test_loader, logger, args):
 
   prevalence = test_outputs['y_true'].sum() / test_outputs['y_true'].size
 
-  # Latent utility
+  
   if len(model.desc_meta) > 0:
+    # Latent utility
     mean_x_auprc, std_x_auprc = run_test_classifier(
       features=np.stack(cast(List[Any], test_outputs['x_desc'])),
       target=test_outputs['y_true'],
+      scoring="average_precision",
       seed=args.seed
     )
 
     mean_u_auprc, std_u_auprc = run_test_classifier(
       features=np.stack(cast(List[Any], test_outputs['u_desc'])),
       target=test_outputs['y_true'],
+      scoring="average_precision",
+      seed=args.seed
+    )
+
+    # Latent S info
+    mean_x_s_bal_acc, std_x_s_bal_acc = run_test_classifier(
+      features=np.stack(cast(List[Any], test_outputs['x_desc'])),
+      target=test_outputs['x_sens'],
+      scoring="balanced_accuracy",
+      seed=args.seed
+    )
+
+    mean_u_s_bal_acc, std_u_s_bal_acc = run_test_classifier(
+      features=np.stack(cast(List[Any], test_outputs['u_desc'])),
+      target=test_outputs['x_sens'],
+      scoring="balanced_accuracy",
       seed=args.seed
     )
 
@@ -88,12 +114,18 @@ def test_ceveahe(model, test_loader, logger, args):
     std_x_auprc = 0
     mean_u_auprc = 0 
     std_u_auprc = 0
+    mean_x_s_bal_acc = 0
+    std_x_s_bal_acc = 0
+    mean_u_s_bal_acc = 0 
+    std_u_s_bal_acc = 0
 
-  logger.info("----- RESULTS -----")
+  logger.info("----- TEST RESULTS -----")
   logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L:.4f}')
-  logger.info(f'Reconstruction loss, Y: {y_recon_L:.4f}')
+  logger.info(f'Prediction loss, Y: {y_recon_L:.4f}')
   logger.info(f'Xdesc -> Y, AUPRC: {mean_x_auprc:.4f} (std. {std_x_auprc:.4f})')
   logger.info(f'Udesc -> Y, AUPRC: {mean_u_auprc:.4f} (std. {std_u_auprc:.4f})')
+  logger.info(f'Xdesc -> S, Balanced Accuracy: {mean_x_s_bal_acc:.4f} (std. {std_x_s_bal_acc:.4f})')
+  logger.info(f'Udesc -> S, Balanced Accuracy: {mean_u_s_bal_acc:.4f} (std. {std_u_s_bal_acc:.4f})')
   logger.info(f'Prevalence: {prevalence:.4f}')
 
   perf_metrics = {

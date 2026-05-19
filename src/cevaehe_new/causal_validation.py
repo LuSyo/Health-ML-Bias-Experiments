@@ -17,7 +17,7 @@ from cevaehe.data_loader import make_bucketed_loader
 from cevaehe.train import train_cevaehe
 from metrics import calculate_balanced_total_mace, calculate_mace
 
-def run_sens_classifier(features, target_sens, seed=4):
+def run_sens_classifier(features, target_sens, scoring="auprc", seed=4):
   '''
     Trains a Random Forest classifier on the given features\
      to predict the target sensitive attribute.
@@ -27,7 +27,7 @@ def run_sens_classifier(features, target_sens, seed=4):
       target_sex: target sensitive attribute to predict
 
     Outputs
-      roc_auc: ROC AUC (Receiver Operating Characteristic Area Under the Curve)
+      balanced_accuracy mean and std
   '''
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   audit_rf = RandomForestClassifier(
@@ -36,10 +36,10 @@ def run_sens_classifier(features, target_sens, seed=4):
       max_features=features.shape[1],
       random_state=seed
   )
-  scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='roc_auc')
+  scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='balanced_accuracy')
   return scores.mean(), scores.std()
 
-def run_test_classifier(features, target, seed=4):
+def run_test_classifier(features, target, scoring="average_precision", seed=4):
   '''
     Trains a Random Forest classifier on the given features\
      to predict the target.
@@ -47,9 +47,10 @@ def run_test_classifier(features, target, seed=4):
     Inputs
       features: Pandas DataFrame of features
       target: target to predict
+      scoring: scoring function used by the classifier (default = "average_precision")
 
     Outputs
-      auprc: AUPRC (Average Precision)
+      scoring metric mean and std
   '''
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   audit_rf = RandomForestClassifier(
@@ -57,7 +58,7 @@ def run_test_classifier(features, target, seed=4):
       min_samples_leaf=5,
       random_state=seed
   )
-  scores = cross_val_score(audit_rf, features, target, cv=cv, scoring='average_precision')
+  scores = cross_val_score(audit_rf, features, target, cv=cv, scoring=scoring)
   return scores.mean(), scores.std()
 
 def latent_recon_loss(u, u_cf):
