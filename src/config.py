@@ -26,6 +26,7 @@ class Config:
   TC_WARM_UP = 0
   CF_INVAR_WARM_UP = 0
   DISC_STEP = 5
+  EARLY_STOP_PATIENCE = 10
 
   # CEVAE-HE loss scaling factors
   CORR_RECON_ALPHA = 1

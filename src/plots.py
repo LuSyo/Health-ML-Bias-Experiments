@@ -4,7 +4,8 @@ import numpy as np
 from sklearn.manifold import TSNE
 
 def train_val_recon_loss_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 4))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 4))
   avg_train_recon_loss = training_metrics["avg_desc_recon_loss"]\
                         + training_metrics["avg_y_recon_loss"]
   sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=ax, label='Train Reconstruction Loss', errorbar=None)
@@ -18,7 +19,8 @@ def train_val_recon_loss_curve(training_metrics, show=False):
   return fig
 
 def train_val_loss_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 4))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 4))
   avg_train_recon_loss = training_metrics["avg_corr_recon_loss"]\
                         + training_metrics["avg_desc_recon_loss"]\
                         + training_metrics["avg_y_recon_loss"]
@@ -33,7 +35,9 @@ def train_val_loss_curve(training_metrics, show=False):
   return fig
 
 def disc_tc_loss_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 4))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 4))
+
   sns.lineplot(x=training_metrics.index, y=training_metrics["avg_disc_loss"], ax=ax, label='Discriminator loss', errorbar=None)
   sns.lineplot(x=training_metrics.index, y=training_metrics["avg_tc_loss"], ax=ax, label='VAE TC loss', errorbar=None)
   plt.legend()
@@ -45,7 +49,8 @@ def disc_tc_loss_curve(training_metrics, show=False):
   return fig
 
 def distillation_loss_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 3))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 3))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('Distillation Loss')
@@ -55,7 +60,8 @@ def distillation_loss_curve(training_metrics, show=False):
   return fig
 
 def KL_loss_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 3))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 3))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('KL Loss')
@@ -65,8 +71,8 @@ def KL_loss_curve(training_metrics, show=False):
   return fig
 
 def all_VAE_losses_curve(training_metrics, show=False):
-
-  fig, axes = plt.subplots(6, 1,figsize=(8, 20))
+  n_epochs = len(training_metrics.index)
+  fig, axes = plt.subplots(6, 1,figsize=(0.05*n_epochs+1, 20))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
                label="Effective X_desc Recon. Loss", ax=axes[0])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
@@ -93,7 +99,8 @@ def all_VAE_losses_curve(training_metrics, show=False):
   return fig
 
 def training_accuracy_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 3))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 3))
   sns.lineplot(x=training_metrics.index, y=training_metrics['accuracy'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('Accuracy')
@@ -103,7 +110,8 @@ def training_accuracy_curve(training_metrics, show=False):
   return fig
 
 def disc_acc_train_val_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 3))
+  n_epochs = len(training_metrics.index)
+  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 3))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_bal_acc'], ax=ax, label="Training", errorbar=None)
   sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_disc_bal_acc"], ax=ax, label='Validation', errorbar=None)
   plt.legend()

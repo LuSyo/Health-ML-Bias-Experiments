@@ -2,6 +2,7 @@ import math
 import torch
 from torch import nn
 import numpy as np
+import copy
 
 class CEVAEHE(nn.Module):
   def __init__(self, indcorr_meta, desc_meta, sens_meta, args):
@@ -364,77 +365,6 @@ class CEVAEHE(nn.Module):
     
     return disc_L, disc_balanced_acc
 
-  # def tc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
-  #   """
-  #   Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
-  #   """
-  #   sample_size = u_desc.size(0)
-
-  #   # Discriminator at chance level
-  #   target_chance = torch.full((sample_size,), 0.5, dtype=torch.float).to(self.device)
-
-  #   # process sensitive feature
-  #   x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
-  #   x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
-
-  #   ## VAE LOSS
-  #   # permuted samples
-  #   permuted_indices = np.random.permutation(u_desc.size(0))
-  #   u_desc_permuted = u_desc_2[permuted_indices]
-
-  #   input_disc = torch.cat((u_desc, x_sens_p), dim=1)
-  #   disc_logit_real = self.discriminate(input_disc)
-
-  #   input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
-  #   disc_logit_perm = self.discriminate(input_disc_perm)
-
-  #   tc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_chance)\
-  #         + nn.BCEWithLogitsLoss()(disc_logit_perm, target_chance)
-    
-  #   return tc_L
-
-  # def disc_loss(self, u_desc, x_sens, u_desc_2, x_sens_2):
-  #   """
-  #   Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
-  #   """
-  #   sample_size = u_desc.size(0)
-
-  #   # Discriminator prediction targets
-  #   target_real = torch.full((sample_size,), 0.9, dtype=torch.float).to(self.device)
-  #   target_perm = torch.full((sample_size,), 0.1, dtype=torch.float).to(self.device)
-
-  #   # process sensitive feature
-  #   x_sens_p = self._process_features(x_sens, self.sens_meta).detach()
-  #   x_sens_2_p = self._process_features(x_sens_2, self.sens_meta).detach()
-
-  #   ## DISCRIMINATOR TRAINING
-  #   # detach tensors
-  #   u_desc_det = u_desc.detach()
-  #   u_desc_2_det = u_desc_2.detach()
-
-  #   # permuted samples
-  #   permuted_indices = np.random.permutation(u_desc_det.size(0))
-  #   u_desc_permuted = u_desc_2_det[permuted_indices]
-
-  #   input_disc = torch.cat((u_desc_det, x_sens_p), dim=1)
-  #   disc_logit_real = self.discriminate(input_disc)
-
-  #   input_disc_perm = torch.cat((u_desc_permuted, x_sens_2_p), dim=1)
-  #   disc_logit_perm = self.discriminate(input_disc_perm)
-
-  #   # Discriminator Loss
-  #   disc_L = nn.BCEWithLogitsLoss()(disc_logit_real, target_real)\
-  #           + nn.BCEWithLogitsLoss()(disc_logit_perm, target_perm)
-
-  #   # Dicriminator binary classification accuracy
-  #   preds_real = (disc_logit_real > 0.0).float()
-  #   preds_perm = (disc_logit_perm > 0.0).float()
-  #   correct_real = (preds_real == 1.0).sum().item()
-  #   correct_perm = (preds_perm == 0.0).sum().item()
-  #   disc_acc = (correct_real + correct_perm) / (2 * sample_size)
-    
-  #   return disc_L, disc_acc
-
 
   def calculate_loss(self, x_indcorr, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight):
     '''
@@ -534,15 +464,19 @@ class EarlyStopping:
     self.checkpoint_path = checkpoint_path
     self.counter = 0
     self.best_recon = None
-    self.ema_tc = None
-    self.ema_recon = None
-    self.early_stop = False
+    self.ema_tc = None # Exponential Moving Average
+    self.ema_cf_invar = None # Exponential Moving Average
+    self.ema_recon = None # Exponential Moving Average
+    self.early_stop = False 
     self.alpha = alpha
     self.start_epoch = start_epoch
 
-  def __call__(self, current_recon, current_tc, checkpoint_dict, current_epoch):
+  def __call__(self, current_recon, current_tc, current_cf_invar, current_epoch, checkpoint_dict):
     if current_epoch < self.start_epoch:
-        return 
+      return 
+
+    if current_epoch == self.start_epoch:
+      self.save_checkpoint(checkpoint_dict)
 
     # Priority 1. Monitor stability of TC loss
     if self.ema_tc is None:
@@ -567,11 +501,20 @@ class EarlyStopping:
     else:
         recon_improved = self.ema_recon < self.best_recon - self.min_delta
 
-    # Increment the counter only if recon has not improved AND TC is stable
-    if not recon_improved and tc_is_stable:
+    # Priority 3. Monitor stability of CF invariance loss
+    if self.ema_cf_invar is None:
+        self.ema_cf_invar = current_cf_invar
+        cf_invar_delta = 0
+        cf_invar_is_stable = False
+    else:
+        prev_ema_cf_invar = self.ema_cf_invar
+        self.ema_cf_invar = (self.alpha * current_cf_invar) + ((1 - self.alpha) * self.ema_cf_invar)
+        cf_invar_delta = abs(self.ema_cf_invar - prev_ema_cf_invar) 
+        cf_invar_is_stable = cf_invar_delta < self.min_delta
+
+    # Increment the counter only if recon has not improved AND losses stable
+    if not recon_improved and tc_is_stable and cf_invar_is_stable:
       self.counter += 1
-      if self.counter == 1:
-        self.save_checkpoint(checkpoint_dict)
     else: 
       self.counter = 0
       if recon_improved:
@@ -582,4 +525,12 @@ class EarlyStopping:
       self.early_stop = True    
 
   def save_checkpoint(self, checkpoint_dict):
-      torch.save(checkpoint_dict, self.checkpoint_path)
+    frozen_dict = {
+      'epoch': checkpoint_dict["epoch"],
+      'model_state_dict': {k: v.clone().cpu() for k, v in checkpoint_dict["model_state_dict"].items()}, 
+      'optimizer_main_state_dict': copy.deepcopy(checkpoint_dict["optimizer_main_state_dict"]),
+      'discrim_optim_state_dict': copy.deepcopy(checkpoint_dict["discrim_optim_state_dict"]),
+      'args': checkpoint_dict["args"]
+    }
+    
+    torch.save(frozen_dict, self.checkpoint_path)

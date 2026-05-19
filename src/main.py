@@ -114,6 +114,7 @@ def main():
       strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
 
     ### UNSEEN DATA: TEST RESULTS AND LATENT/CF GENERATION
+    set_global_seeds(args.seed)
     
     # TEST Data loader
     test_loader, _ = make_bucketed_loader(
@@ -143,6 +144,7 @@ def main():
 
     del test_counterfactuals_df, test_latent_spaces_df
     del train_counterfactuals_df, train_latent_spaces_df
+    del model
 
     gc.collect()
 

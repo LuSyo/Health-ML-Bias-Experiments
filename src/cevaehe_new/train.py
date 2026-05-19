@@ -1,4 +1,5 @@
 import argparse
+import copy
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ import torch.optim as optim
 import os
 from config import Config
 from metrics import get_baseline_bce
-from cevaehe.model import EarlyStopping
+from cevaehe_new.model import EarlyStopping
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
   if epoch < warm_up_epochs:
@@ -36,8 +37,10 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   checkpoint_file = f'{model_path}{args.exp_name}_cevaehe.pth'
   torch.serialization.add_safe_globals([argparse.Namespace])
 
-  early_stopping = EarlyStopping(patience=10, checkpoint_path=checkpoint_file, 
-                                 start_epoch=max(args.kl_warm_up, args.tc_warm_up, args.distill_warm_up))
+  early_stopping = EarlyStopping(
+    patience=args.early_stop_patience, 
+    checkpoint_path=checkpoint_file,
+    start_epoch=max(args.kl_warm_up, args.tc_warm_up, args.distill_warm_up, args.cf_invar_warm_up))
 
   training_log = []
   last_train_results = None
@@ -147,8 +150,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       all_x_sens.append(x_sens.cpu().numpy())
       all_u_desc.append(vae_outputs["u_desc"].cpu().numpy())
       all_u_desc_inf.append(vae_outputs["u_desc_inf"].cpu().numpy())
-      all_mu_desc.append(vae_outputs["mu_desc"])
-      all_logvar_desc.append(vae_outputs["logvar_desc"])
+      all_mu_desc.append(vae_outputs["mu_desc"].cpu().numpy())
+      all_logvar_desc.append(vae_outputs["logvar_desc"].cpu().numpy())
 
       # LOSSES
       epoch_metrics['total_vae_loss'].append(vae_outputs["total_vae_loss"].item())
@@ -221,8 +224,12 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       'discrim_optim_state_dict': discrim_optimiser.state_dict(),
       'args': args
     }
-
-    early_stopping(avg_val_recon_loss, training_log[-1]['avg_tc_loss'], checkpoint_dict, epoch)
+    early_stopping(
+      current_recon=avg_val_recon_loss, 
+      current_tc=training_log[-1]['avg_tc_loss'], 
+      current_cf_invar=training_log[-1]['avg_cf_invar_loss'], 
+      current_epoch=epoch,
+      checkpoint_dict=checkpoint_dict)
     
     if early_stopping.early_stop:
       logger.info(f"Early stopping triggered at epoch {epoch}")
