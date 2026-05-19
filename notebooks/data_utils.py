@@ -207,24 +207,6 @@ def apply_additive_unfair_bias(df, s_target=0, bias_prob=0.5, s1_max_shift=2, b1
 
   return df_obs
 
-def plot_cont_feature(df, feature, label, class_label):
-  fig, axes = plt.subplots(1, 2, figsize=(16, 4))
-  sns.histplot(df, x=feature, hue="S", bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue=class_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[1])
-  fig.suptitle(f'Probability distribution of {label}', fontsize=16)
-  plt.show()
-
-  return fig
-
-def plot_cat_feature(df, feature, label, class_label):
-  fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-  sns.histplot(df, x=df[feature].astype(int), hue="S", common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue=class_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[1])
-  fig.suptitle(f'Probability distribution of {label}', fontsize=16)
-  plt.show()
-
-  return fig
-
 
 # ==== ARCHIVE ====
 
