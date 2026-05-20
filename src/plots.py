@@ -198,13 +198,12 @@ def grad_curve(training_metrics, show=False):
 
 import matplotlib.pyplot as plt
 
-def stratified_roc_curves(final_curves):
+def stratified_roc_curves(final_curves, models):
     """
     Generates and saves a high-resolution plot comparing stratified 
     average ROC curves for all models.
     """
     mean_fpr = final_curves['mean_fpr']
-    models = ['baseline', 'fair_0', 'fair_1', 'fair_2', 'fair_3']
     colors = {'group_0': 'tab:red', 'group_1': 'tab:blue'} # Female = Red, Male = Blue
     
     # Create a figure with subplots for each model

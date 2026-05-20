@@ -1,4 +1,3 @@
-import argparse
 import os
 import gc
 
@@ -48,259 +47,256 @@ def main():
     # Load the counterfactual dataset
     counterfactuals_df = pd.read_csv(Config.DATA_DIR + args.cf_dataset)
 
-    # Initialise CEVAEHE model and load with trained parameters
-    # cevaehe = CEVAEHE(feature_mapping['ind'], 
-    #                 feature_mapping['desc'], 
-    #                 feature_mapping['corr'], 
-    #                 feature_mapping['sens'], 
-    #               args=args)
-    # model_path = f'{Config.MODELS_DIR}{args.cevaehe}'
-    # torch.serialization.add_safe_globals([argparse.Namespace])
-    # model_state = torch.load(model_path, weights_only=True)
-    # cevaehe.load_state_dict(model_state['model_state_dict']) 
-
-
-    # Define feature columns to make sure that factual and coutnerfactual datasets
-    # have the same column order
-    x_ind_cols = [f['name'] for f in feature_mapping['ind']]
+    # Define the feature columns
     x_desc_cols = [f['name'] for f in feature_mapping['desc']]
-    x_corr_cols = [f['name'] for f in feature_mapping['corr']]
-    x_sens_col = [f['name'] for f in feature_mapping['sens']]
-    feature_cols = x_ind_cols + x_desc_cols + x_corr_cols
+    x_indcorr_cols = [f['name'] for f in feature_mapping['indcorr']]
+    x_sens_col = [f['name'] for f in feature_mapping['sens']][0]
+    feature_cols = x_indcorr_cols + x_desc_cols
     target = feature_mapping['target']['name']
-    u_desc_cols = latents_df.filter(regex="u_d_.*").columns.to_list()
-    u_corr_cols = latents_df.filter(regex="u_c_.*").columns.to_list()
+    u_desc_cols = latents_df.filter(regex="u_desc_.*").columns.to_list()
 
-    # Baseline features and target class
-    # X = dataset.drop([target], axis=1)
-    X = dataset.loc[:, feature_cols].copy()
-    X[x_sens_col[0]] = dataset[x_sens_col[0]]
-    y = dataset[target]
+    baseline_features = x_indcorr_cols + x_desc_cols + [x_sens_col]
+    baseline_unaware_features = x_indcorr_cols + x_desc_cols
+    fair_features = x_indcorr_cols + u_desc_cols + [x_sens_col]
+    fair_unaware_features = x_indcorr_cols + u_desc_cols
+    logger.info(f'Baseline Model columns: {baseline_features}')
+    logger.info(f'Baseline S-unaware Model columns: {baseline_unaware_features}')
+    logger.info(f'Fair Model columns: {fair_features}')
+    logger.info(f'Fair S-unaware Model columns: {fair_unaware_features}')
+    
+    # Fair dataset
+    fair_dataset = latents_df.merge(
+      dataset[x_indcorr_cols + [x_sens_col, target]], 
+      right_index=True, 
+      left_on="patient_index")
 
-    # Counterfactual features and target
-    counterfactuals_df[target] = counterfactuals_df["y_full_cf_prob"]
-    counterfactuals_df[x_ind_cols] = dataset[x_ind_cols]
-    counterfactuals_df[x_sens_col[0]] = 1 - dataset[x_sens_col[0]]
-    X_cf = counterfactuals_df.loc[:, feature_cols + x_sens_col].copy()
-    y_cf = counterfactuals_df.loc[:, target].copy()
+    # Counterfactual dataset
+    cf_dataset = counterfactuals_df.merge(
+      dataset[x_indcorr_cols + [x_sens_col, target]],
+      right_index=True,
+      left_on="patient_index",
+      suffixes=("_fact", "")
+    )
+    cf_dataset[x_sens_col] = 1 - cf_dataset[x_sens_col] 
 
-    # Merge latents, Xsens and Xind into fair features dataframe
-    fair_dataset = latents_df.merge(dataset[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
-    fair_dataset_cf = latents_df.merge(counterfactuals_df[feature_cols + x_sens_col + [target]], right_index=True, left_on='patient_index')
+    # Baseline features and targets
+    X = dataset[baseline_features].copy()
+    y = dataset[target].copy()
 
-    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.3, random_state=42)
+    sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.3, random_state=args.seed)
 
     baseline_metrics = []
-    fair_0_metrics = []
-    fair_1_metrics = []
-    fair_2_metrics = []
-    fair_3_metrics = []
-    baseline_feature_importances = []
-    feature_names = X.columns.tolist()
+    baseline_unaware_metrics = []
+    fair_metrics = []
+    fair_unaware_metrics = []
 
-    sens_groups = X.loc[:, str(x_sens_col[0])].unique()
+    baseline_feat_imp = []
+    baseline_unaware_feat_imp = []
+    fair_feat_imp = []
+    fair_unaware_feat_imp = []
+
+    sens_groups = X.loc[:, x_sens_col].unique()
 
     roc_curve_data = {
       model: {group: [] for group in sens_groups} 
-      for model in ['baseline', 'fair_0', 'fair_1', 'fair_2', 'fair_3']
+      for model in ['baseline', 'baseline_unaware', 'fair', 'fair_unaware']
     }
 
     logger.info("Performing initial hyperparameter tuning...")
     best_params = initial_hyperparam_tuning(X, y)
     logger.info(f"Best Params found: {best_params}")
 
+    # print(fair_dataset.head(5).to_markdown())
+    # print(cf_dataset.head(5).to_markdown())
+
     for i, (train_index, test_index) in enumerate(sss.split(X, y)):
       logger.info(f'--- Start bootstrap loop {i}')
-      X_train, X_test, X_cf_test = X.iloc[train_index], X.iloc[test_index], X_cf.iloc[test_index]
-      y_train, y_test, y_cf_test = y.iloc[train_index], y.iloc[test_index], y_cf.iloc[test_index]
+      X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+      X_unaware_train = X_train.drop(x_sens_col, axis=1)
+      X_unaware_test = X_test.drop(x_sens_col, axis=1)
+      y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
-      # Equivalent fair training and test feature sets for each fair model
-      # Model 0: Ucorr, Udesc, Xind
-      # Model 1: Ucorr, Xdesc, Xind
-      # Model 2: Xcorr, Udesc, Xind
-      # Model 3: Ucorr, Udesc
+      # Fair training features and target
       fair_train_index = fair_dataset['patient_index'].isin(train_index)
       fair_test_index = fair_dataset['patient_index'].isin(test_index)
 
-      fair_0_cols = u_desc_cols + u_corr_cols + x_ind_cols
-      if i == 0: logger.info(f'Model 0 columns: {fair_0_cols}')
-      fair_0_X_train = fair_dataset.loc[fair_train_index, fair_0_cols].copy()
-      fair_0_X_test = fair_dataset.loc[fair_test_index, fair_0_cols].copy()
-      fair_0_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_0_cols].copy()
-
-      fair_1_cols = x_desc_cols + u_corr_cols + x_ind_cols
-      if i == 0: logger.info(f'Model 1 columns: {fair_1_cols}')
-      fair_1_X_train = fair_dataset.loc[fair_train_index, fair_1_cols].copy()
-      fair_1_X_test = fair_dataset.loc[fair_test_index, fair_1_cols].copy()
-      fair_1_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_1_cols].copy()
-
-      fair_2_cols = u_desc_cols + x_corr_cols + x_ind_cols
-      if i == 0: logger.info(f'Model 2 columns: {fair_2_cols}')
-      fair_2_X_train = fair_dataset.loc[fair_train_index, fair_2_cols].copy()
-      fair_2_X_test = fair_dataset.loc[fair_test_index, fair_2_cols].copy()
-      fair_2_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_2_cols].copy()
-
-      fair_3_cols = u_desc_cols + u_corr_cols
-      if i == 0: logger.info(f'Model 3 columns: {fair_3_cols}')
-      fair_3_X_train = fair_dataset.loc[fair_train_index, fair_3_cols].copy()
-      fair_3_X_test = fair_dataset.loc[fair_test_index, fair_3_cols].copy()
-      fair_3_X_cf_test = fair_dataset_cf.loc[fair_test_index, fair_3_cols].copy()
+      fair_X_train = fair_dataset.loc[fair_train_index, fair_features].copy()
+      fair_X_test = fair_dataset.loc[fair_test_index, fair_features].copy()
+      fair_unaware_X_train = fair_X_train.drop(x_sens_col, axis=1)
+      fair_unaware_X_test = fair_X_test.drop(x_sens_col, axis=1)
 
       fair_y_train = fair_dataset.loc[fair_train_index, target].copy()
       fair_y_test = fair_dataset.loc[fair_test_index, target].copy()
-      fair_y_cf_test = fair_dataset_cf.loc[fair_test_index, target].copy()
-      fair_s_ref = fair_dataset.loc[fair_test_index, x_sens_col[0]].copy()
 
-      # Train the baseline and fair models
+      # TEST ONLY: Counterfactual features and target
+      cf_test_index = cf_dataset['patient_index'].isin(test_index)
+
+      cf_X_test = cf_dataset.loc[cf_test_index, baseline_features].copy()
+      cf_X_unaware_test = cf_X_test.drop(x_sens_col, axis=1)
+      
+      cf_fair_X_test = fair_X_test.copy()
+      cf_fair_X_test[x_sens_col] = 1 - cf_fair_X_test[x_sens_col] 
+
+      # --- TRAIN MODELS ---
       logger.info("Train baseline model")
-      rf_baseline, y_pred, y_pred_proba, y_cf_pred_proba, baseline_threshold = train_random_forest(X_train, y_train, X_test, X_cf_test, best_params, args.target_ppv, args.seed)
+      rf_baseline, y_pred, y_pred_proba, y_cf_pred_proba, baseline_threshold = train_random_forest(
+        X_train, y_train, X_test, cf_X_test, 
+        best_params, args.target_ppv, args.seed)
 
-      importances = rf_baseline.feature_importances_
-      baseline_feature_importances.append(importances)
+      baseline_feat_imp.append(rf_baseline.feature_importances_)
 
       del rf_baseline
-      
-      logger.info("Train Fair Model 0: Ucorr, Udesc, Xind")
-      _, _, fair_0_y_pred_proba, fair_0_y_cf_pred_proba, fair_0_threshold = train_random_forest(
-      fair_0_X_train, fair_y_train, fair_0_X_test, fair_0_X_cf_test, best_params, args.target_ppv, args.seed)
 
-      del _
-      
-      logger.info("Train Fair Model 1: Ucorr, Xdesc, Xind")
-      _, _, fair_1_y_pred_proba, fair_1_y_cf_pred_proba, fair_1_threshold = train_random_forest(
-      fair_1_X_train, fair_y_train, fair_1_X_test, fair_1_X_cf_test, best_params, args.target_ppv, args.seed)
+      logger.info("Train baseline S-unaware model")
+      rf_baseline_unaware, un_y_pred, un_y_pred_proba, un_y_cf_pred_proba, baseline_unaware_threshold = train_random_forest(
+        X_unaware_train, y_train, X_unaware_test, cf_X_unaware_test, 
+        best_params, args.target_ppv, args.seed)
 
-      del _
-      
-      logger.info("Train Fair Model 2: Xcorr, Udesc, Xind")
-      _, _, fair_2_y_pred_proba, fair_2_y_cf_pred_proba, fair_2_threshold = train_random_forest(
-      fair_2_X_train, fair_y_train, fair_2_X_test, fair_2_X_cf_test, best_params, args.target_ppv, args.seed)
+      baseline_unaware_feat_imp.append(rf_baseline_unaware.feature_importances_)
 
-      del _
-      
-      logger.info("Train Fair Model 3: Ucorr, Udesc")
-      _, _, fair_3_y_pred_proba, fair_3_y_cf_pred_proba, fair_3_threshold = train_random_forest(
-      fair_3_X_train, fair_y_train, fair_3_X_test, fair_3_X_cf_test, best_params, args.target_ppv, args.seed)
+      del rf_baseline_unaware
 
-      del _
+      logger.info("Train fair model")
+      rf_fair, fair_y_pred, fair_y_pred_proba, fair_y_cf_pred_proba, fair_threshold = train_random_forest(
+        fair_X_train, fair_y_train, fair_X_test, cf_fair_X_test, 
+        best_params, args.target_ppv, args.seed)
 
-      #BASELINE PERF METRICS
-      baseline_global_perf = calculate_performance_metrics(y_test, y_pred, y_pred_proba)
-      baseline_global_perf['threshold'] = baseline_threshold
-      baseline_global_perf['cf_harm'], baseline_global_perf['cf_harm_pos'], baseline_global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
-        y_test,
-        y_pred_proba,
-        y_cf_pred_proba
-      )
-      
-      baseline_strat_perf = stratified_perf(y_test, y_pred, y_pred_proba, X_test[x_sens_col[0]], y_cf_pred_proba)
-      baseline_metrics.append(baseline_global_perf | baseline_strat_perf)
+      fair_feat_imp.append(rf_fair.feature_importances_)
 
-      # FAIR MODELS PERF METRICS
+      del rf_fair
+
+      logger.info("Train fair S-unaware model")
+      rf_fair_unaware, fair_un_y_pred, fair_un_y_pred_proba, fair_un_y_cf_pred_proba, fair_unaware_threshold = train_random_forest(
+        fair_unaware_X_train, fair_y_train, fair_unaware_X_test, fair_unaware_X_test, 
+        best_params, args.target_ppv, args.seed)
+
+      fair_unaware_feat_imp.append(rf_fair_unaware.feature_importances_)
+
+      del rf_fair_unaware
+
+      # --- TEST PERF METRICS ---
+
+      # Baseline and Baseline S-unaware metrics
+      def get_baseline_metrics(y_test, y_pred, y_pred_proba, y_cf_pred_proba, X_test_sens, threshold):
+        global_perf = calculate_performance_metrics(y_test, y_pred, y_pred_proba)
+        global_perf['threshold'] = threshold
+        # global_perf['cf_harm'], global_perf['cf_harm_pos'], global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
+        #   y_test,
+        #   y_pred_proba,
+        #   y_cf_pred_proba
+        # )
+
+        strat_perf = stratified_perf(
+          y_test, y_pred, y_pred_proba, 
+          X_test_sens, 
+          y_cf_pred_proba)
+
+        return global_perf | strat_perf
+
+      baseline_metrics.append(get_baseline_metrics(
+        y_test=y_test, 
+        y_pred=y_pred, 
+        y_pred_proba=y_pred_proba, 
+        y_cf_pred_proba=y_cf_pred_proba, 
+        X_test_sens=X_test[x_sens_col], 
+        threshold=baseline_threshold
+      ))
+
+      baseline_unaware_metrics.append(get_baseline_metrics(
+        y_test=y_test, 
+        y_pred=un_y_pred, 
+        y_pred_proba=un_y_pred_proba, 
+        y_cf_pred_proba=un_y_cf_pred_proba, 
+        X_test_sens=X_test[x_sens_col], 
+        threshold=baseline_unaware_threshold
+      ))
+
+      # Fair and Fair S-unaware metrics
       patient_indexes = fair_dataset.loc[fair_test_index, 'patient_index'].values
 
-      fair_0_global_perf, fair_0_strat_perf, fair_0_roc_curves = avg_perf_per_patient(
-        fair_y_test, 
-        fair_0_y_pred_proba, 
-        fair_0_y_cf_pred_proba,
-        fair_s_ref.values, 
-        patient_indexes,
-        threshold=fair_0_threshold)
-      fair_0_global_perf['threshold'] = fair_0_threshold
-      fair_0_metrics.append(fair_0_global_perf | fair_0_strat_perf)
+      fair_global_perf, fair_strat_perf, fair_roc_curves = avg_perf_per_patient(
+        y_true=fair_y_test, 
+        y_pred_prob=fair_y_pred_proba, 
+        y_cf_pred_prob=fair_y_cf_pred_proba, 
+        sens=fair_X_test[x_sens_col], 
+        patient_index=patient_indexes, 
+        threshold=fair_threshold
+      )
+      fair_metrics.append(fair_global_perf | fair_strat_perf)
 
-      fair_1_global_perf, fair_1_strat_perf, fair_1_roc_curves = avg_perf_per_patient(
-        fair_y_test, 
-        fair_1_y_pred_proba,  
-        fair_1_y_cf_pred_proba,
-        fair_s_ref.values, 
-        patient_indexes,
-        threshold=fair_1_threshold)
-      fair_1_global_perf['threshold'] = fair_1_threshold
-      fair_1_metrics.append(fair_1_global_perf | fair_1_strat_perf)
-
-      fair_2_global_perf, fair_2_strat_perf, fair_2_roc_curves = avg_perf_per_patient(
-        fair_y_test, 
-        fair_2_y_pred_proba,  
-        fair_2_y_cf_pred_proba,
-        fair_s_ref.values, 
-        patient_indexes,
-        threshold=fair_2_threshold)
-      fair_2_global_perf['threshold'] = fair_2_threshold
-      fair_2_metrics.append(fair_2_global_perf | fair_2_strat_perf)
-
-      fair_3_global_perf, fair_3_strat_perf, fair_3_roc_curves = avg_perf_per_patient(
-        fair_y_test, 
-        fair_3_y_pred_proba,  
-        fair_3_y_cf_pred_proba,
-        fair_s_ref.values, 
-        patient_indexes,
-        threshold=fair_3_threshold)
-      fair_3_global_perf['threshold'] = fair_3_threshold
-      fair_3_metrics.append(fair_3_global_perf | fair_3_strat_perf)
+      fair_un_global_perf, fair_un_strat_perf, fair_un_roc_curves = avg_perf_per_patient(
+        y_true=fair_y_test, 
+        y_pred_prob=fair_un_y_pred_proba, 
+        y_cf_pred_prob=fair_un_y_cf_pred_proba, 
+        sens=fair_X_test[x_sens_col], 
+        patient_index=patient_indexes, 
+        threshold=fair_unaware_threshold
+      )
+      fair_unaware_metrics.append(fair_un_global_perf | fair_un_strat_perf)
 
       for name, curves in [
-        ('baseline', get_grouped_roc_curve(y_test, y_pred_proba, X_test[x_sens_col[0]])),
-        ('fair_0', fair_0_roc_curves),
-        ('fair_1', fair_1_roc_curves),
-        ('fair_2', fair_2_roc_curves),
-        ('fair_3', fair_3_roc_curves)
+        ('baseline', get_grouped_roc_curve(y_test, y_pred_proba, X_test[x_sens_col])),
+        ('baseline_unaware', get_grouped_roc_curve(y_test, un_y_pred_proba, X_test[x_sens_col])),
+        ('fair', fair_roc_curves),
+        ('fair_unaware', fair_un_roc_curves)
       ]:
         for group_id, tpr_interp in curves.items():
             roc_curve_data[name][group_id].append(tpr_interp)
 
-
-    # --- SAVE PERFORMANCE METRICS ---
     logger.info('Saving results and cleaning up memory...')
 
     baseline_metrics_df = pd.DataFrame(baseline_metrics) 
-    fair_0_metrics_df = pd.DataFrame(fair_0_metrics) 
-    fair_1_metrics_df = pd.DataFrame(fair_1_metrics) 
-    fair_2_metrics_df = pd.DataFrame(fair_2_metrics) 
-    fair_3_metrics_df = pd.DataFrame(fair_3_metrics) 
-
     baseline_metrics_df.to_csv(f'{results_path}/baseline_metrics.csv', index=False)
-    fair_0_metrics_df.to_csv(f'{results_path}/fair_0_metrics.csv', index=False)
-    fair_1_metrics_df.to_csv(f'{results_path}/fair_1_metrics.csv', index=False)
-    fair_2_metrics_df.to_csv(f'{results_path}/fair_2_metrics.csv', index=False)
-    fair_3_metrics_df.to_csv(f'{results_path}/fair_3_metrics.csv', index=False)
+
+    baseline_unaware_metrics_df = pd.DataFrame(baseline_unaware_metrics) 
+    baseline_unaware_metrics_df.to_csv(f'{results_path}/baseline_unaware_metrics.csv', index=False)
+
+    fair_metrics_df = pd.DataFrame(fair_metrics) 
+    fair_metrics_df.to_csv(f'{results_path}/fair_metrics.csv', index=False)
+
+    fair_unaware_metrics_df = pd.DataFrame(fair_unaware_metrics) 
+    fair_unaware_metrics_df.to_csv(f'{results_path}/fair_unaware_metrics.csv', index=False)
 
     # --- SAVE STRATIFIED ROC CURVES ---
 
     final_curves = {'mean_fpr': np.linspace(0, 1, 100)}
-
     for model_name, groups in roc_curve_data.items():
-        for group_id in sens_groups:
-            mean_tpr = np.mean(groups[group_id], axis=0)
-            mean_tpr[-1] = 1.0 
-            
-            final_curves[f"{model_name}_group_{group_id}"] = mean_tpr
+      for group_id in sens_groups:
+        mean_tpr = np.mean(groups[group_id], axis=0)
+        mean_tpr[-1] = 1.0 
+        
+        final_curves[f"{model_name}_group_{group_id}"] = mean_tpr
 
-    roc_curves_fig = stratified_roc_curves(final_curves)
+    roc_curves_fig = stratified_roc_curves(
+      final_curves,
+      models = roc_curve_data.keys())
     roc_curves_fig.savefig(f'{results_path}/roc_curves.png', bbox_inches='tight', dpi=300)
 
-    # --- SAVE BASELINE FEATURE IMPORTANCES ---
+    # --- SAVE FEATURE IMPORTANCES ---
+    def save_feat_imp(feat_imp, feat_names, file_name):
+      avg_importances = np.mean(feat_imp, axis=0)
+      std_importances = np.std(feat_imp, axis=0)
 
-    avg_importances = np.mean(baseline_feature_importances, axis=0)
-    std_importances = np.std(baseline_feature_importances, axis=0)
+      importance_df = pd.DataFrame({
+        'feature': feat_names,
+        'importance_mean': avg_importances,
+        'importance_std': std_importances
+      }).sort_values(by='importance_mean', ascending=False)
 
-    importance_df = pd.DataFrame({
-      'feature': feature_names,
-      'importance_mean': avg_importances,
-      'importance_std': std_importances
-    }).sort_values(by='importance_mean', ascending=False)
+      importance_df.to_csv(f'{results_path}/{file_name}.csv', index=False)
 
-    importance_df.to_csv(f'{results_path}/baseline_feature_importances.csv', index=False)
+    save_feat_imp(baseline_feat_imp, baseline_features, "baseline_feat_imp")
+    save_feat_imp(baseline_unaware_feat_imp, baseline_unaware_features, "baseline_unaware_feat_imp")
+    save_feat_imp(fair_feat_imp, fair_features, "fair_feat_imp")
+    save_feat_imp(fair_unaware_feat_imp, fair_unaware_features, "fair_unaware_feat_imp")
 
-    del baseline_metrics_df, fair_0_metrics_df, fair_1_metrics_df, fair_2_metrics_df, fair_3_metrics_df
-    del final_curves
-    del importance_df
-
+    # del final_curves
+    del baseline_metrics_df, baseline_unaware_metrics_df, fair_metrics_df, fair_unaware_metrics_df
+    del baseline_metrics, baseline_unaware_metrics, fair_metrics, fair_unaware_metrics
     gc.collect()
-
+    
   except Exception as e:
     logger.error(f'Experiment failed: {str(e)}', exc_info=True)
 
 if __name__ == "__main__":
   main()
-

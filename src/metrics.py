@@ -4,14 +4,16 @@ from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, confusion_
 from sklearn.cross_decomposition import CCA
 
 def calculate_performance_metrics(y_true, y_pred, y_prob):
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     return {
         'accuracy': accuracy_score(y_true, y_pred),
         'roc_auc': roc_auc_score(y_true, y_prob),
         'auprc': average_precision_score(y_true, y_prob),
         'fnr': fn / (fn + tp) if (fn + tp) > 0 else np.nan,
         'fpr': fp / (fp + tn) if (fp + tn) > 0 else np.nan,
-        'brier_score': brier_score_loss(y_true, y_prob)
+        'brier_score': brier_score_loss(y_true, y_prob),
+        'recall': tp / (fn + tp) if (fn + tp) > 0 else np.nan,
+        'ppv': tp / (tp + fp) if (tp + fp) > 0 else np.nan,
     }
 
 def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_pred_prob=None):
@@ -44,17 +46,17 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_pred_prob=None):
         "brier_score_1": perf_metrics_1['brier_score']
     }
 
-    if y_cf_pred_prob is not None:
-        strat_metrics['cf_harm_0'], strat_metrics['cf_harm_pos_0'], strat_metrics['cf_harm_neg_0'] = calculate_counterfactual_harm(
-            y_true[group_0],
-            y_pred_prob[group_0],
-            y_cf_pred_prob[group_0]
-        )
-        strat_metrics['cf_harm_1'], strat_metrics['cf_harm_pos_1'], strat_metrics['cf_harm_neg_1'] = calculate_counterfactual_harm(
-            y_true[group_1],
-            y_pred_prob[group_1],
-            y_cf_pred_prob[group_1]
-        )
+    # if y_cf_pred_prob is not None:
+    #     strat_metrics['cf_harm_0'], strat_metrics['cf_harm_pos_0'], strat_metrics['cf_harm_neg_0'] = calculate_counterfactual_harm(
+    #         y_true[group_0],
+    #         y_pred_prob[group_0],
+    #         y_cf_pred_prob[group_0]
+    #     )
+    #     strat_metrics['cf_harm_1'], strat_metrics['cf_harm_pos_1'], strat_metrics['cf_harm_neg_1'] = calculate_counterfactual_harm(
+    #         y_true[group_1],
+    #         y_pred_prob[group_1],
+    #         y_cf_pred_prob[group_1]
+    #     )
 
     return strat_metrics
 
@@ -77,11 +79,13 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_pred_prob, sens, patient_inde
         avg_results['y_pred_prob']
     )
 
-    global_perf['cf_harm'], global_perf['cf_harm_pos'], global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
-        avg_results['y_true'],
-        avg_results['y_pred_prob'],
-        avg_results['y_cf_pred_prob']
-    )
+    global_perf['threshold'] = threshold
+
+    # global_perf['cf_harm'], global_perf['cf_harm_pos'], global_perf['cf_harm_neg'] = calculate_counterfactual_harm(
+    #     avg_results['y_true'],
+    #     avg_results['y_pred_prob'],
+    #     avg_results['y_cf_pred_prob']
+    # )
 
     strat_perf = stratified_perf(
         avg_results['y_true'],
