@@ -3,11 +3,12 @@ import numpy as np
 import os
 import gc
 import torch
+# torch.autograd.set_detect_anomaly(True)
 
 from config import Config
-from cevaehe_new.model import CEVAEHE
+from cevaehe.model import CEVAEHE
 from utils import parse_args, load_config, set_global_seeds, setup_logger
-from cevaehe_new.causal_validation import run_sps_bootstrap
+from cevaehe.causal_validation import run_sps_bootstrap
 
 def main():
   args = parse_args()

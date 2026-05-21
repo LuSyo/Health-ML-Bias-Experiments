@@ -4,14 +4,15 @@
     {"name":"cp","type":"categorical", "n":4},
     {"name":"ecg","type":"categorical","n":3},
     {"name":"age","type":"continuous"},
-    {"name":"bp","type":"continuous"},
-    {"name":"chol","type":"continuous"},
     {"name":"mhr","type":"continuous"},
     {"name":"fbs","type":"binary"},
     {"name":"st","type":"continuous"},
     {"name":"slope","type":"categorical", "n":3}
   ],
-  "ind": [],
+  "ind": [
+    {"name":"bp","type":"continuous"},
+    {"name":"chol","type":"continuous"}
+  ],
   "sens": [{"name":"sex","type":"binary"}], 
   "target": {"name":"cvd","type":"binary"} 
 }

@@ -1,5 +1,6 @@
 import random
 import gc
+from typing import Tuple, cast, List, Any
 
 import torch
 from torch import nn
@@ -8,38 +9,122 @@ import numpy as np
 import pandas as pd
 
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
-from sklearn.metrics import mean_squared_error, roc_auc_score, average_precision_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.metrics import average_precision_score
 
-from cevaehe.model import CEVAEHE
-from cevaehe.data_loader import make_bucketed_loader
-from cevaehe.train import train_cevaehe
-from metrics import calculate_balanced_total_mace, calculate_mace
+from cevaehe_new.model import CEVAEHE
+from cevaehe_new.data_loader import make_bucketed_loader
+from cevaehe_new.train import train_cevaehe
+from metrics import calculate_counterfactual_harm, get_baseline_bce
+from utils import set_global_seeds
 
-def run_sens_classifier(features, target_sens, scoring="auprc", seed=4):
-  '''
-    Trains a Random Forest classifier on the given features\
-     to predict the target sensitive attribute.
+def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=None, seed=4):
+  """
+  Trains a probe once per fold and evaluates it across factual global, subgroups, and counterfactual test distributions
 
-    Inputs
-      features: Pandas DataFrame of features
-      target_sex: target sensitive attribute to predict
-
-    Outputs
-      balanced_accuracy mean and std
-  '''
+  Inputs:
+      features: 2D np.ndarray of factual features
+      target: 1D np.ndarray of true outcomes
+      sens_attr: 1D np.ndarray containing sensitive attribute
+      cf_features: 2D np.ndarray of counterfactual features (optional)
+  """
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
-  audit_rf = RandomForestClassifier(
+  sens_flat = sens.flatten()
+  subgroups = np.unique(sens_flat)
+
+  global_auprc = []
+  global_cf_metrics = {"bal_harm": [], "harm_pos": [], "harm_neg": []}
+  subgroup_auprc = {g: [] for g in subgroups}
+  subgroup_cf_metrics = {
+      g: {"bal_harm": [], "harm_pos": [], "harm_neg": []} 
+      for g in subgroups
+  }
+
+  for train_idx, test_idx in cv.split(features, target):
+    X_train, X_test = features[train_idx], features[test_idx]
+    y_train, y_test = target[train_idx], target[test_idx]
+    s_test = sens_flat[test_idx]
+    
+    # Fit probe exactly once per fold
+    probe = RandomForestClassifier(
       n_estimators=300,
       min_samples_leaf=5,
-      max_features=features.shape[1],
       random_state=seed
-  )
-  scores = cross_val_score(audit_rf, features, target_sens, cv=cv, scoring='balanced_accuracy')
-  return scores.mean(), scores.std()
+    )
+    probe.fit(X_train, y_train)
+    
+    # Factual Global Score
+    y_pred_prob = probe.predict_proba(X_test)[:, 1]
+    global_auprc.append(average_precision_score(y_test, y_pred_prob))
 
-def run_test_classifier(features, target, scoring="average_precision", seed=4):
+    # Global Counterfactual Harm Evaluation
+    if cf_features is not None:
+      X_test_cf = cf_features[test_idx]
+      y_pred_prob_cf = probe.predict_proba(X_test_cf)[:, 1]
+      
+      bal_cf_harm, harm_pos, harm_neg = calculate_counterfactual_harm(
+        y_test,
+        y_pred_prob,
+        y_pred_prob_cf
+      )
+      global_cf_metrics["bal_harm"].append(bal_cf_harm)
+      global_cf_metrics["harm_pos"].append(harm_pos)
+      global_cf_metrics["harm_neg"].append(harm_neg)
+    
+    # Stratified evaluation
+    for g in subgroups:
+      subgroup_mask = (s_test == g)
+
+      if np.sum(subgroup_mask) == 0:
+        continue
+
+      y_test_sub = y_test[subgroup_mask]
+      y_pred_prob_sub = y_pred_prob[subgroup_mask] 
+
+      subgroup_auprc[g].append(average_precision_score(y_test_sub, y_pred_prob_sub))  
+
+      if cf_features is not None:
+        y_pred_prob_cf_sub = y_pred_prob_cf[subgroup_mask] #type: ignore
+        
+        sub_bal_harm, sub_harm_pos, sub_harm_neg = calculate_counterfactual_harm(
+            y_test_sub,
+            y_pred_prob_sub,
+            y_pred_prob_cf_sub
+        )
+        subgroup_cf_metrics[g]["bal_harm"].append(sub_bal_harm)
+        subgroup_cf_metrics[g]["harm_pos"].append(sub_harm_pos)
+        subgroup_cf_metrics[g]["harm_neg"].append(sub_harm_neg)   
+    
+
+  # AGGREGATED METRICS
+  results = {
+    f"{dict_prefix}global_mean_auprc": np.mean(global_auprc),
+    f"{dict_prefix}global_std_auprc": np.std(global_auprc),
+  }
+  
+  if cf_features is not None:
+    results[f"{dict_prefix}bal_harm_mean"] = np.mean(global_cf_metrics['bal_harm'])
+    results[f"{dict_prefix}bal_harm_std"] = np.std(global_cf_metrics['bal_harm'])
+    results[f"{dict_prefix}harm_pos_mean"] = np.mean(global_cf_metrics['harm_pos'])
+    results[f"{dict_prefix}harm_pos_std"] = np.std(global_cf_metrics['harm_pos'])
+    results[f"{dict_prefix}harm_neg_mean"] = np.mean(global_cf_metrics['harm_neg'])
+    results[f"{dict_prefix}harm_neg_std"] = np.std(global_cf_metrics['harm_neg'])
+
+  for g in subgroups:
+    results[f'{dict_prefix}{g}_mean_auprc'] = np.mean(subgroup_auprc[g])
+    results[f'{dict_prefix}{g}_std_auprc'] = np.std(subgroup_auprc[g])
+
+    if cf_features is not None:
+      results[f"{dict_prefix}{g}_bal_harm_mean"] = np.mean(subgroup_cf_metrics[g]['bal_harm'])
+      results[f"{dict_prefix}{g}_bal_harm_std"] = np.std(subgroup_cf_metrics[g]['bal_harm'])
+      results[f"{dict_prefix}{g}_harm_pos_mean"] = np.mean(subgroup_cf_metrics[g]['harm_pos'])
+      results[f"{dict_prefix}{g}_harm_pos_std"] = np.std(subgroup_cf_metrics[g]['harm_pos'])
+      results[f"{dict_prefix}{g}_harm_neg_mean"] = np.mean(subgroup_cf_metrics[g]['harm_neg'])
+      results[f"{dict_prefix}{g}_harm_neg_std"] = np.std(subgroup_cf_metrics[g]['harm_neg'])
+      
+  return results
+
+def run_test_classifier(features, target, scoring="average_precision",seed=4):
   '''
     Trains a Random Forest classifier on the given features\
      to predict the target.
@@ -59,150 +144,8 @@ def run_test_classifier(features, target, scoring="average_precision", seed=4):
       random_state=seed
   )
   scores = cross_val_score(audit_rf, features, target, cv=cv, scoring=scoring)
+
   return scores.mean(), scores.std()
-
-def latent_recon_loss(u, u_cf):
-  '''
-    Calculates the mean reconstruction loss between the latent U and its counterfactual, as a Mean Square Error loss
-
-    Inputs
-      u: the factual latent vector
-      u_cf: the counterfactual latent vector
-
-    Outputs
-      recon_loss: the mean reconstruction loss across dimensions of the latent
-  '''
-  recon_loss = 0
-  dim = u.shape[1]
-  for i in range(dim):
-    recon_loss += mean_squared_error(u[:,i], u_cf[:,i] )
-
-  return recon_loss / dim
-
-def counterfactual_sensitivity(v_pred, v_pred_cf, v_meta):
-    '''
-      Calculates Counterfactual Sensitivity scores for the given feature bucket, matching each feature type to the correct scoring
-    '''
-    sample_size = v_pred.shape[0]
-    sensitivity_results = {}
-    for i, feature in enumerate(v_meta):
-      f_name = feature['name']
-      f_type = feature['type']
-
-      v = v_pred[:, i]
-      v_cf = v_pred_cf[:, i]
-
-      if f_type in ['categorical', 'binary']:
-        # Flip Rate: Percentage of cases where the hard-reconstructed 
-        # category or bit changed
-        changes = (v != v_cf).sum()
-        score = changes / sample_size
-        score_type = "flip rate"
-      else:
-        # Continuous: Mean Absolute Deviation (MAD)
-        score = np.mean(np.abs(v - v_cf))
-        score_type = "MAD"
-
-      sensitivity_results[f_name] = {
-                                  'score': score,
-                                  'score_type':score_type
-                                  }
-
-    return sensitivity_results
-
-def calculate_te_error(y_true, y_pred_prob, y_cf_prob, sens):
-  '''
-    Calculates the Total Effect (TE) Error between observed group outcome disparities \
-    and the total effect estimated by the model's counterfactual generation
-  '''
-
-  # Factual disparity in outcomes
-  # E[Y|S=1] - E[Y|S=0]
-  group_0_mask = sens == 0
-  group_1_mask = sens == 1
-
-  obs_disparity = y_true[group_1_mask].mean() - y_true[group_0_mask].mean()
-
-  # Estimated Average Total Effect (ATE)
-  # E[Y(do(S=1)) - Y(do(S=0))]
-  # If factual sens == 1, Y(do(S=1)) = factual prediction, Y(do(S=0)) = counterfactual prediction  
-  # If factual sens == 0, Y(do(S=0)) = factual prediction, Y(do(S=1)) = counterfactual prediction
-  y_do_1 = np.where(group_1_mask, y_pred_prob, y_cf_prob)
-  y_do_0 = np.where(group_0_mask, y_pred_prob, y_cf_prob)
-
-  est_ate = (y_do_1 - y_do_0).mean()
-
-  # TE Error
-  te_error = abs(obs_disparity - est_ate)
-
-  # Internal consistency check
-  # i.e. TE error against the model's reconstructed outcome
-  model_disparity = y_pred_prob[group_1_mask].mean() - y_pred_prob[group_0_mask].mean()
-  internal_te_error = abs(model_disparity - est_ate)
-
-  return te_error, obs_disparity, est_ate, internal_te_error
-
-def evaluate_latent_utility_fidelity(u, x, x_meta, seed=4):
-  """
-  Trains linear probes to predict each original feature in X_desc from U_desc.
-  Quantifies how much clinical information survived the latent bottleneck.
-  
-  Inputs:
-    u: numpy array of the extracted latent variables
-    x: numpy array of the original descendant features
-    x_meta: list of dictionaries describing the features (from config/mapping)
-    
-  Outputs:
-    fidelity_scores: Dictionary of scores for each feature
-  """
-  fidelity_scores = {}
-  
-  # Iterate through each feature in the X_desc bucket
-  for i, feature_meta in enumerate(x_meta):      
-      feature_name = feature_meta['name']
-      feature_type = feature_meta['type']
-      target_y = x[:, i]
-
-      cv_folds = 5
-      scoring = ""
-      scores = np.zeros(cv_folds)
-      norm_score = 0
-      
-      if feature_type in ['categorical', 'binary']:
-        # Classification Probe
-        probe = LogisticRegression(max_iter=1000, random_state=seed)
-        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=seed)
-
-        if feature_type == 'binary':
-          scoring = 'roc_auc'
-          scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
-          avg_score = scores.mean()
-          norm_score = (avg_score - 0.5) / 0.5
-        else:
-          counts = np.bincount(target_y.astype(int))
-          base_acc = np.max(counts) / len(target_y)
-        
-          scoring = 'accuracy'
-          scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
-          norm_score = (scores.mean() - base_acc) / (1.0 - base_acc) if base_acc < 1.0 else 0.0
-          
-      elif feature_type == 'continuous':
-        # Regression Probe
-        probe = Ridge(random_state=seed)
-        cv = KFold(n_splits=cv_folds, shuffle=True, random_state=seed)
-        
-        # Use R-squared to measure variance explained
-        scoring = 'r2'
-        scores = cross_val_score(probe, u, target_y, cv=cv, scoring=scoring)
-        norm_score = scores.mean()
-          
-      fidelity_scores[feature_name] = {
-         'score': scores.mean(),
-         'score_type': scoring,
-         'norm_score': max(0, norm_score)
-      }
-
-  return fidelity_scores
 
 def _get_config_key(desc_list):
   """Generates a unique, order-independent key for a pathway configuration."""
@@ -210,20 +153,21 @@ def _get_config_key(desc_list):
 
 def _audit_pathway_config(dataset, mapping, iteration, run_id, all_features, logger, args):
   # 1. Data loaders
-  train_loader, val_loader, test_loader \
-    = make_bucketed_loader(dataset, mapping, val_size=0.2,
-                            test_size=0.2, batch_size=args.batch_size, seed=args.seed)
+  train_loader, val_loader = make_bucketed_loader(
+    dataset, 
+    mapping, 
+    val_size=0.2, 
+    batch_size=args.batch_size, 
+    seed=args.seed)
   
   # 2. Initialize Model with current SCM
   model = CEVAEHE(
-      ind_meta=mapping['ind'], 
-      desc_meta=mapping['desc'], 
-      corr_meta=mapping['corr'], 
-      sens_meta=mapping['sens'], 
-      args=args
+    indcorr_meta=mapping['indcorr'], 
+    desc_meta=mapping['desc'], 
+    sens_meta=mapping['sens'], 
+    args=args
   ).to(args.device)
 
-  logger.info(f'U_corr dimension: {model.uc_dim}')
   logger.info(f'U_desc dimension: {model.ud_dim}')
 
   # 3. Lite train model
@@ -235,17 +179,32 @@ def _audit_pathway_config(dataset, mapping, iteration, run_id, all_features, log
     args
   )
 
-  # 4. return metrics for this causal model
-  results = sps_test_ceveahe(model, test_loader, all_features, mapping['desc'], 
-                          iteration, run_id, logger, args)
+  set_global_seeds(args.seed)
+
+  full_loader, _ = make_bucketed_loader(
+    dataset, 
+    mapping, 
+    val_size=0, 
+    batch_size=args.batch_size, 
+    seed=args.seed)
+
+  results = sps_test_ceveahe(
+    model, 
+    full_loader, 
+    all_features, 
+    mapping['desc'], 
+    iteration, 
+    run_id, 
+    logger, 
+    args
+  )
   
   del model
   del train_loader
   del val_loader
-  del test_loader
   
   if torch.cuda.is_available():
-      torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
   
   gc.collect()
   
@@ -268,11 +227,10 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   targeted_pathways = feature_mapping.get('targeted_pathways', [])
   seen_keys = set()
 
-  # establish baseline with all features in Xcorr
+  # establish baseline with all features in Xdesc
   baseline_mapping = {
-    'desc': [],
-    'corr': features,
-    'ind': feature_mapping['ind'],
+    'desc': features,
+    'indcorr': feature_mapping['ind'],
     'sens': feature_mapping['sens'],
     'target': feature_mapping['target']
   }
@@ -292,8 +250,7 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
 
     current_mapping = {
       'desc': tp["desc"],
-      'corr': tp["corr"],
-      'ind': feature_mapping['ind'],
+      'indcorr': tp["indcorr"],
       'sens': feature_mapping['sens'],
       'target': feature_mapping['target']
     }
@@ -306,28 +263,41 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
       results.extend(tp_results)
 
     seen_keys.add(_get_config_key(tp['desc']))
-  
-  for i in range(args.sps_iter):
+
+  # Pre-generate unique configurations
+  random_configs = []
+  attempts = 0
+  max_attempts = args.sps_iter * 100
+
+  while len(random_configs) < args.sps_iter and attempts < max_attempts:
+    attempts += 1
     
-    # 1. Randomly partition features
-    # We ensure at least one feature remains in each bucket
+    # Shuffle and partition
     shuffled = random.sample(features, len(features))
-    split_point = random.randint(1, len(shuffled))
+    split_point = random.randint(1, len(shuffled)- 1)
     
     current_desc = shuffled[:split_point]
     current_corr = shuffled[split_point:]
-
-    # Skip the config if already seen
+    
     current_key = _get_config_key(current_desc)
-    if current_key in seen_keys:
-      logger.info(f"Skipping redundant config (iteration {i+1} attempt)")
-      continue
+    
+    # Only keep it if it's genuinely new (and doesn't match baseline/targeted keys)
+    if current_key not in seen_keys:
+      seen_keys.add(current_key)
+      random_configs.append((current_desc, current_corr))
+
+  if len(random_configs) < args.sps_iter:
+    logger.warning(
+        f"Sampling limit hit."
+        f"Generated {len(random_configs)} unique configs instead of the requested {args.sps_iter}."
+    )
+  
+  for i, (current_desc, current_corr) in enumerate(random_configs):
 
     # Construct the current mapping
     current_mapping = {
       'desc': current_desc,
-      'corr': current_corr,
-      'ind': feature_mapping['ind'],
+      'indcorr': current_corr + feature_mapping['ind'],
       'sens': feature_mapping['sens'],
       'target': feature_mapping['target']
     }
@@ -338,226 +308,96 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
       boot_dataset = dataset.sample(frac=1.0, axis=0, random_state=args.seed + j)
       iteration_results = _audit_pathway_config(boot_dataset, current_mapping, i, j,features, logger, args)
       results.extend(iteration_results)
-
-    seen_keys.add(current_key)  
           
   return pd.DataFrame(baseline_results), pd.DataFrame(results)
 
-def sps_test_ceveahe_old(model, test_loader, features, desc_features, iteration, run_id, logger, args):
-  model.eval()
-  all_sens, all_u_desc, all_x_corr, all_x_desc, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_pred_cf_prob = \
-  [], [], [], [], [], [], [], []
-
-  is_baseline = len(desc_features) == 0
-  if is_baseline: logger.info(f'---BASELINE RESULTS---')
-
-  with torch.no_grad():
-    for batch in test_loader:
-      x_ind, x_desc, x_corr, x_sens, y = [t.to(args.device) for t in batch[:5]]
-
-      batch_size = x_sens.size(0)
-      s_bio = x_sens.clone()
-      s_soc = x_sens.clone()
-
-      #--- ABDUCTION ---
-      # Get the latent variables, the reconstructed features, 
-      # the counterfactual outcomes
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y)
-
-      # Factual and Full Counterfactual prediction
-      # from mean Ucorr and Udesc
-      x_desc_pred_logits, _, _, x_desc_cf, x_corr_cf, _, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
-
-      x_desc_pred = model.hard_reconstruct_features(x_desc_pred_logits, model.desc_meta, batch_size)
-
-      y_full_cf_prob = nn.Sigmoid()(y_full_cf_logits)
-
-      # --- FACTUAL INFERENCE ---
-      # Get the factual prediction
-      mu_corr_inf, _, mu_desc_inf, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
-      _, _, y_pred_inf_logits, *_= model.decode(mu_desc_inf, mu_corr_inf, x_ind, s_bio, s_soc)
-
-      y_pred_prob = nn.Sigmoid()(y_pred_inf_logits)
-
-      # --- SYNTHETIC COUNTERFACTUAL INFERENCE ---
-      # Get the counterfactual prediction
-      x_desc_syn = x_desc if is_baseline else x_desc_cf
-      x_corr_syn = x_corr_cf if is_baseline else x_corr
-      s_bio_cf = 1 - s_bio if is_baseline else s_bio
-      s_soc_cf = s_soc if is_baseline else 1 - s_soc
-
-      mu_corr_cf_inf, _, mu_desc_cf_inf, _ = model.encode(x_desc_syn, x_corr_syn, x_ind, s_bio_cf, s_soc_cf, y=None)
-      _, _, y_pred_cf_inf_logits, *_= model.decode(mu_desc_cf_inf, mu_corr_cf_inf, x_ind, s_bio_cf, s_soc_cf)
-
-      y_pred_cf_prob = nn.Sigmoid()(y_pred_cf_inf_logits)
-
-      # --- STORE BATCH RESULTS ---
-      all_sens.append(x_sens.cpu().numpy())
-      all_u_desc.append(mu_desc.cpu().numpy())
-      all_x_desc.append(x_desc.cpu().numpy())
-      all_x_corr.append(x_corr.cpu().numpy())
-      all_y_true.append(y.cpu().numpy())
-      all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
-      all_y_pred_prob.append(y_pred_prob.cpu().numpy())
-      all_y_pred_cf_prob.append(y_pred_cf_prob.cpu().numpy())
-    
-  sens_np = np.concatenate(all_sens).flatten()
-  u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
-  x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
-  y_true_np = np.concatenate(all_y_true).flatten()
-  y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
-  y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
-  y_pred_cf_prob_np = np.concatenate(all_y_pred_cf_prob).flatten()
-
-
-  if np.isnan(u_desc_np).any():
-    logger.error("NaNs detected in U_desc latents prior to evaluation.")
-    raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
-  if np.isnan(x_desc_np).any():
-    logger.error("NaNs detected in X_desc inputs prior to evaluation.")
-    raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
-
-  # # Total Effect Error
-  te_error, *_ = calculate_te_error(
-    y_true_np,
-    y_pred_prob_np,
-    y_full_cf_prob_np,
-    sens_np
-  )
-
-  # Balanced MACE
-  stratified_mace = {}
-  for v in np.unique(sens_np):
-    group_mask = sens_np == v
-    group_mace = calculate_balanced_total_mace(
-      y_true_np[group_mask], 
-      y_pred_prob_np[group_mask], 
-      y_pred_cf_prob_np[group_mask]
-    )
-    stratified_mace["mace_" + str(v)] = group_mace
-    logger.info(f'MACE, GROUP {str(v)}: {group_mace}')
-
-  mace = calculate_balanced_total_mace(
-    y_true_np, y_pred_prob_np, y_pred_cf_prob_np
-  )
-  logger.info(f'TOTAL MACE: {mace}')
-
-  # Utility: AUPRC
-  roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
-  auprc = average_precision_score(y_true_np, y_pred_prob_np)
-  logger.info(f'ROC AUC: {roc_auc}')
-  logger.info(f'AUPRC: {auprc}')
-
-  results = []
-  for feature in features:
-    f_name = feature['name']
-    
-    results.append({
-      "iteration": iteration,
-      "run_id": run_id,
-      "feature": f_name,
-      "bucket": "x_desc" if feature in desc_features else "x_corr",
-      "roc_auc": roc_auc,
-      "auprc": auprc,
-      "te_error": te_error,
-      "mace": mace,
-      "desc_size": len(desc_features),
-      "u_desc_dim": model.ud_dim
-    } | stratified_mace)
-    
-  return results
-
 def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run_id, logger, args):
+  device = args.device
   model.eval()
-  all_sens, all_y_true, all_y_full_cf_prob, all_y_pred_prob, all_y_soc_cf_prob, all_u_desc, all_x_desc, all_x_corr, all_x_ind = [], [], [], [], [], [], [], [], []
 
-  is_baseline = len(desc_features) == 0
-  if is_baseline: logger.info(f'---BASELINE RESULTS---')
+  all_y_true, all_x_sens, all_x_indcorr, all_u_desc, all_x_desc, all_x_desc_cf, all_y_pred_cf, all_pred_logits =\
+    [], [], [], [], [], [], [], []
+
+  all_x_desc_recon_logits = {}
+
+  # RANDOM-LEVEL Y_RECON_L
+  test_y_np = test_loader.dataset.tensors[3].cpu().numpy()
+  y_random_bce, y_prevalence = get_baseline_bce(test_y_np)
+  test_s_np = test_loader.dataset.tensors[2].cpu().numpy()
+  s_prevalence = np.mean(test_s_np)
 
   with torch.no_grad():
     for batch in test_loader:
-      x_ind, x_desc, x_corr, x_sens, y = [t.to(args.device) for t in batch[:5]]
+      x_indcorr, x_desc, x_sens, y = [t.to(device) for t in batch[:4]]
 
-      s_bio = x_sens.clone()
-      s_soc = x_sens.clone()
+      mu_desc, logvar_desc = model.encode(x_desc, x_sens, y=None)
 
-      # INFERENCE
-      mu_corr, _, mu_desc, _ = model.encode(x_desc, x_corr, x_ind, s_bio, s_soc, y=None)
-
-      if mu_corr.isnan().any() or mu_desc.isnan().any():
-        logger.error("NaNs detected in latents.")
+      if mu_desc.isnan().any():
+        logger.error("NaNs detected in latent.")
         raise Exception("CEVAEHE collapse. Check scaling of training and test datasets.")
 
-      _, _, y_pred_logits, _, _, y_soc_cf_logits, _, y_full_cf_logits = model.decode(mu_desc, mu_corr, x_ind, s_bio, s_soc)
+      u_desc = model.reparameterize(mu_desc, logvar_desc)
 
-      y_pred_prob = nn.Sigmoid()(y_pred_logits)
-      y_soc_cf_prob = nn.Sigmoid()(y_soc_cf_logits)
-      y_full_cf_prob = nn.Sigmoid()(y_full_cf_logits)
+      x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits = model.decode(
+        u_desc, x_indcorr, x_sens
+      )
 
-      all_sens.append(x_sens.cpu().numpy())
-      all_y_true.append(y.cpu().numpy())
-      all_y_pred_prob.append(y_pred_prob.cpu().numpy())
-      all_y_soc_cf_prob.append(y_soc_cf_prob.cpu().numpy())
-      all_y_full_cf_prob.append(y_full_cf_prob.cpu().numpy())
-      all_u_desc.append(mu_desc.cpu().numpy())
-      all_x_desc.append(x_desc.cpu().numpy())
-      all_x_corr.append(x_corr.cpu().numpy())
-      all_x_ind.append(x_ind.cpu().numpy())
+      all_y_true.append(y)
+      all_x_sens.append(x_sens)
+      all_u_desc.append(u_desc)
+      all_x_desc.append(x_desc)
+      all_x_indcorr.append(x_indcorr)
+      all_x_desc_cf.append(x_desc_recon_cf)
+      all_y_pred_cf.append(torch.sigmoid(y_pred_cf_logits))
+      all_pred_logits.append(y_pred_logits)
     
-  sens_np = np.concatenate(all_sens).flatten()
-  y_true_np = np.concatenate(all_y_true).flatten()
-  y_pred_prob_np = np.concatenate(all_y_pred_prob).flatten()
-  y_soc_cf_prob_np = np.concatenate(all_y_soc_cf_prob).flatten()
-  y_full_cf_prob_np = np.concatenate(all_y_full_cf_prob).flatten()
-  u_desc_np = np.stack(list(np.concatenate(all_u_desc)))
-  x_desc_np = np.stack(list(np.concatenate(all_x_desc)))
-  x_corr_np = np.stack(list(np.concatenate(all_x_corr)))
-  x_ind_np = np.stack(list(np.concatenate(all_x_ind)))
+  all_y_true = torch.cat(all_y_true, dim=0)
+  all_x_desc = torch.cat(all_x_desc, dim=0)
+  all_x_desc_cf = torch.cat(all_x_desc_cf, dim=0)
+  all_x_indcorr = torch.cat(all_x_indcorr, dim=0)
+  all_u_desc = torch.cat(all_u_desc, dim=0)
+  all_x_sens = torch.cat(all_x_sens, dim=0)
+  all_pred_logits = torch.cat(all_pred_logits, dim=0)
 
-  # TOTAL EFFECT ERROR
-  te_error, *_ = calculate_te_error(
-    y_true = y_true_np,
-    y_pred_prob = y_pred_prob_np,
-    y_cf_prob = y_full_cf_prob_np,
-    sens = sens_np
-  )
-
-  # MACE
-  stratified_mace = {}
-  for v in np.unique(sens_np):
-    group_mask = sens_np == v
-    group_mace = calculate_mace( 
-      y_pred_prob = y_pred_prob_np[group_mask], 
-      y_cf_prob = y_soc_cf_prob_np[group_mask]
-    )
-    stratified_mace["mace_" + str(v)] = group_mace
-    logger.info(f'MACE, GROUP {str(v)}: {group_mace}')
-
-  mace = calculate_mace(
-    y_pred_prob_np, y_soc_cf_prob_np
-  )
-  logger.info(f'GLOBAL MACE: {mace}')
-
-  # Internal AUPRC and ROC-AUC
-  internal_roc_auc = roc_auc_score(y_true_np, y_pred_prob_np)
-  internal_auprc = average_precision_score(y_true_np, y_pred_prob_np)
-  logger.info(f'Internal ROC AUC: {internal_roc_auc}')
-  logger.info(f'Internal AUPRC: {internal_auprc}')
-
-  # External AUPRC
-  ext_x_auprc, _ = run_test_classifier(
-    features = np.concat((x_desc_np, x_corr_np, x_ind_np), axis=1),
-    target= y_true_np,
-    seed = args.seed
-  )
-  ext_u_auprc, _ = run_test_classifier(
-    features = np.concat((u_desc_np, x_corr_np, x_ind_np), axis=1),
-    target= y_true_np,
-    seed = args.seed
-  )
-  logger.info(f'External AUPRC (Xdesc, Xcorr, Xind): {ext_x_auprc}')
-  logger.info(f'External AUPRC (Udesc, Xcorr, Xind): {ext_u_auprc}')
+  all_y_true_np = all_y_true.cpu().numpy().flatten()
+  all_x_desc_np = all_x_desc.cpu().numpy()
+  all_x_desc_cf_np = all_x_desc_cf.cpu().numpy()
+  all_x_indcorr_np = all_x_indcorr.cpu().numpy()
+  all_u_desc_np = all_u_desc.cpu().numpy()
+  all_x_sens_np = all_x_sens.cpu().numpy().reshape(-1, 1)
   
+  if len(desc_features):
+    
+    # Probe trained on (X_indcorr, X_desc, S)
+    # Global AUPRC 
+    x_probe_input = np.concatenate([all_x_indcorr_np, all_x_desc_np], axis=1)
+    x_probe_cf_input = np.concatenate([all_x_indcorr_np, all_x_desc_cf_np], axis=1)
+
+    x_results = run_downstream_probe(
+      features = x_probe_input,
+      target = all_y_true_np,
+      sens = all_x_sens_np,
+      cf_features = x_probe_cf_input,
+      dict_prefix="x_",
+      seed = args.seed
+    )
+    
+    # Probe trained on (X_indcorr, U_desc, S)
+    # Global AUPRC 
+    u_probe_input = np.concatenate([all_x_indcorr_np, all_u_desc_np], axis=1)
+
+    u_results = run_downstream_probe(
+      features = u_probe_input,
+      target = all_y_true_np,
+      sens = all_x_sens_np,
+      dict_prefix="u_",
+      seed = args.seed
+    )
+
+  else:
+    u_results = {}
+    x_results = {}
+
   results = []
   for feature in features:
     f_name = feature['name']
@@ -567,12 +407,8 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "run_id": run_id,
       "feature": f_name,
       "bucket": "x_desc" if feature in desc_features else "x_corr",
-      "ext_x_auprc": ext_x_auprc,
-      "ext_u_auprc": ext_u_auprc,
-      "internal_roc_auc": internal_roc_auc,
-      "internal_auprc": internal_auprc,
-      "te_error": te_error,
-      "mace": mace
-    } | stratified_mace)
+      "y_prevalence": y_prevalence,
+      "s_prevalence": s_prevalence
+    } | u_results | x_results)
 
   return results
