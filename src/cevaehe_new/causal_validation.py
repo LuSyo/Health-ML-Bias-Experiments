@@ -30,7 +30,7 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
   """
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   sens_flat = sens.flatten()
-  subgroups = np.unique(sens_flat)
+  subgroups = np.unique(sens_flat).astype(int)
 
   global_auprc = []
   global_cf_metrics = {"bal_harm": [], "harm_pos": [], "harm_neg": []}
