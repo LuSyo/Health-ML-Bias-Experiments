@@ -87,6 +87,28 @@ pip install -r requirements.txt
 
 Run `notebooks/UCI_data_preparation.ipynb` on the pilot dataset
 
+#### Data split
+
+```
+[ TOTAL DATASET ]
+       │
+       ├───► CEVAE-HE TRAINING SPLIT (e.g. 80% of total data)
+       │         │
+       │         ├──► Internal Train (80%) ───► Compute Gradients & VAE Losses
+       │         └──► Internal Val (20%)   ───► Trigger Early Stopping
+       │         │
+       │         └──► Whole Split Audit   ───► Pathway Sensitivity Analysis (SPS)
+       │
+       └───► TEST SPLIT (e.g. 20% of total data) [UNSEEN BY VAE]
+                 │
+                 └──► Freeze CeVAE-HE ───► Pass Test Split ──► Generate Latents & CFs
+                 │
+                 └──► Bootstrap Folds
+                     │
+                     ├──► TRAIN (80%): Train Downstream Classifiers
+                     └──► TEST (20%): Compute Final Metrics (MACE, AUPRC)
+```
+
 ### 1. Stochastic Pathway Sensitivity analysis
 
 **Goal:** Find the optimal $(X_{desc}, X_{corr}, X_{ind})$ feature assignment maximising causal fidelity (OBJ 1: minimise Total Effect error between the observed disparity in the dataset and the CEVAE-HE estimated disparity after reconstruction) and counterfactual stability (OBJ 2: minimise Mean Absolute Counterfactual Error (MACE), i.e. the number of individuals for whom the prediction flips in the counterfactual world). 
