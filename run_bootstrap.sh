@@ -3,12 +3,11 @@ sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 python3 src/bootstrap.py \
-  --exp_name "12MAY_SYNTH_classifiers_fair" \
-  --data "synth/11MAY/simple_fair_test.csv" \
-  --mapping "configs/scm/synth_simple_scm_fair.json" \
-  --cevaehe "12MAY_SYNTH_CEVAE_fair_cevaehe.pth" \
-  --cf_dataset "12MAY_SYNTH_CEVAE_fair/counterfactuals.csv" \
-  --latent_dataset "12MAY_SYNTH_CEVAE_fair/latent_spaces.csv" \
-  --n_runs 50 \
-  --target_ppv 0.9
+  --exp_name "21MAY_CLASSIFIERS_B_1_train_set" \
+  --data "heart_disease_train.csv" \
+  --mapping "configs/scm/uci_scm_config_simplified_3.json" \
+  --cevaehe "21MAY_CEVAEHE_B_1_cevaehe.pth" \
+  --cf_dataset "21MAY_CEVAEHE_B_1/test_counterfactuals.csv" \
+  --latent_dataset "21MAY_CEVAEHE_B_1/test_latent_space.csv" \
+  --n_runs 50
 

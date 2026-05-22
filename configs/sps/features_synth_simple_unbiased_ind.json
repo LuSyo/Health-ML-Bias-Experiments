@@ -1,0 +1,18 @@
+{
+  "X": [
+    {"name":"biomarker_1","type":"continuous"}
+  ],
+  "ind": [
+    {"name":"biomarker_2","type":"continuous"}
+  ],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"Y","type":"binary"},
+  "targeted_pathways":[
+    {
+      "desc": [
+        {"name":"biomarker_1","type":"continuous"}
+      ],
+      "corr": []
+    }
+  ]
+}

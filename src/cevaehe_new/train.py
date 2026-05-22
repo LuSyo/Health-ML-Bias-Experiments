@@ -40,7 +40,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   early_stopping = EarlyStopping(
     patience=args.early_stop_patience, 
     checkpoint_path=checkpoint_file,
-    start_epoch=max(args.kl_warm_up, args.tc_warm_up, args.distill_warm_up, args.cf_invar_warm_up))
+    start_epoch=max(args.early_stop_start, args.kl_warm_up, args.tc_warm_up, args.distill_warm_up, args.cf_invar_warm_up))
 
   training_log = []
   last_train_results = None
@@ -146,12 +146,12 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
 
       # OUTPUTS
-      all_y_true.append(y.cpu().numpy())
-      all_x_sens.append(x_sens.cpu().numpy())
-      all_u_desc.append(vae_outputs["u_desc"].cpu().numpy())
-      all_u_desc_inf.append(vae_outputs["u_desc_inf"].cpu().numpy())
-      all_mu_desc.append(vae_outputs["mu_desc"].cpu().numpy())
-      all_logvar_desc.append(vae_outputs["logvar_desc"].cpu().numpy())
+      all_y_true.append(y)
+      all_x_sens.append(x_sens)
+      all_u_desc.append(vae_outputs["u_desc"])
+      all_u_desc_inf.append(vae_outputs["u_desc_inf"])
+      all_mu_desc.append(vae_outputs["mu_desc"])
+      all_logvar_desc.append(vae_outputs["logvar_desc"])
 
       # LOSSES
       epoch_metrics['total_vae_loss'].append(vae_outputs["total_vae_loss"].item())
@@ -180,13 +180,20 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     training_log[-1]['avg_desc_grad'] = np.mean(epoch_grad_norms['enc_desc_grad_norm'])
     training_log[-1]['avg_disc_bal_acc'] = np.mean(epoch_metrics["disc_bal_acc"])
 
+    all_y_true = torch.cat(all_y_true, dim=0)
+    all_u_desc = torch.cat(all_u_desc, dim=0)
+    all_x_sens = torch.cat(all_x_sens, dim=0)
+    all_u_desc_inf = torch.cat(all_u_desc_inf, dim=0)
+    all_logvar_desc = torch.cat(all_logvar_desc, dim=0)
+    all_mu_desc = torch.cat(all_mu_desc, dim=0)
+
     last_train_results = pd.DataFrame({
-      'y_true': np.concatenate(all_y_true).flatten(),
-      'x_sens': np.concatenate(all_x_sens).flatten(),
-      'u_desc_inf': list(np.concatenate(all_u_desc_inf)),
-      'u_desc': list(np.concatenate(all_u_desc)),
-      'logvar_desc': list(np.concatenate(all_logvar_desc)),
-      'mu_desc': list(np.concatenate(all_mu_desc)),
+      'y_true': all_y_true.cpu().numpy().flatten(),
+      'x_sens': all_x_sens.cpu().numpy().flatten(),
+      'u_desc_inf': list(all_u_desc_inf.cpu().numpy()),
+      'u_desc': list(all_u_desc.cpu().numpy()),
+      'logvar_desc': list(all_logvar_desc.cpu().numpy()),
+      'mu_desc': list(all_mu_desc.cpu().numpy()),
     })
 
     # VALIDATION

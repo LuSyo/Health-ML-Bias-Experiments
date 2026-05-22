@@ -47,6 +47,7 @@ def parse_args():
   parser.add_argument('--cf_invar_warm_up', type=int, default=Config.CF_INVAR_WARM_UP)
   parser.add_argument('--disc_step', type=int, default=Config.DISC_STEP)
   parser.add_argument('--early_stop_patience', type=int, default=Config.EARLY_STOP_PATIENCE)
+  parser.add_argument('--early_stop_start', type=int, default=Config.EARLY_STOP_START)
 
   # CEVAE-HE 
   parser.add_argument('--h_dim', type=int, default=Config.H_DIM)

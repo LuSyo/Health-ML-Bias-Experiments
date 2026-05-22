@@ -8,7 +8,6 @@
   "target": {"name":"Y","type":"binary"},
   "targeted_pathways":[
     {
-      "name": "TRUE SCM",
       "desc": [
         {"name":"biomarker_2_obs","type":"continuous"}
       ],

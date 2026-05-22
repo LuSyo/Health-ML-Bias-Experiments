@@ -72,8 +72,8 @@ def test_ceveahe(model, test_loader, logger, args):
 
   # Reconstruction losses
 
-  desc_recon_L = model.reconstruction_loss(all_x_desc_recon_logits, all_x_desc, model.desc_meta)
-  y_recon_L = nn.BCEWithLogitsLoss()(all_pred_logits, all_y_true)
+  desc_recon_L = model.reconstruction_loss(all_x_desc_recon_logits, all_x_desc, model.desc_meta).item()
+  y_recon_L = nn.BCEWithLogitsLoss()(all_pred_logits, all_y_true).item()
 
   prevalence = test_outputs['y_true'].sum() / test_outputs['y_true'].size
 
@@ -134,7 +134,11 @@ def test_ceveahe(model, test_loader, logger, args):
     "mean_x_auprc": mean_x_auprc,
     "std_x_auprc": std_x_auprc,
     "mean_u_auprc": mean_u_auprc,
-    "std_u_auprc": std_u_auprc
+    "std_u_auprc": std_u_auprc,
+    "mean_x_s_bal_acc": mean_x_s_bal_acc,
+    "std_x_s_bal_acc": std_x_s_bal_acc,
+    "mean_u_s_bal_acc": mean_u_s_bal_acc,
+    "std_u_s_bal_acc": std_u_s_bal_acc
   }
 
   return test_outputs, perf_metrics

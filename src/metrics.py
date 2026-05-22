@@ -38,12 +38,16 @@ def stratified_perf(y_true, y_pred, y_pred_prob, sens, y_cf_pred_prob=None):
         "fnr_0": perf_metrics_0['fnr'],
         "fpr_0": perf_metrics_0['fpr'],
         "brier_score_0": perf_metrics_0['brier_score'],
+        "recall_0": perf_metrics_0['recall'],
+        "ppv_0": perf_metrics_0['ppv'],
         "accuracy_1": perf_metrics_1['accuracy'],
         "roc_auc_1": perf_metrics_1['roc_auc'],
         "auprc_1": perf_metrics_1['auprc'],
         "fnr_1": perf_metrics_1['fnr'],
         "fpr_1": perf_metrics_1['fpr'],
-        "brier_score_1": perf_metrics_1['brier_score']
+        "brier_score_1": perf_metrics_1['brier_score'],
+        "recall_1": perf_metrics_1['recall'],
+        "ppv_1": perf_metrics_1['ppv'],
     }
 
     # if y_cf_pred_prob is not None:

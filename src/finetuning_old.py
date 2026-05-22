@@ -7,10 +7,11 @@ from sklearn.utils import resample
 
 from config import Config
 from utils import parse_args, load_config, set_global_seeds, setup_logger
-from cevaehe_new.data_loader import make_bucketed_loader
-from cevaehe_new.model import CEVAEHE
-from cevaehe_new.train import train_cevaehe
-from cevaehe_new.test import test_ceveahe
+from cevaehe.data_loader import make_bucketed_loader
+from cevaehe.model import CEVAEHE
+from cevaehe.train import train_cevaehe
+from cevaehe.test import test_ceveahe
+from metrics import get_cca
 
 def main():
   args = parse_args()
@@ -75,18 +76,18 @@ def main():
 
     def finetuning_run(run_dataset, run_id):
       # Data loaders
-      train_loader, val_loader = make_bucketed_loader(
+      train_loader, val_loader, test_loader = make_bucketed_loader(
         run_dataset, feature_mapping,
-        val_size=0.2, batch_size=args.batch_size, seed=args.seed)
+        test_size=0.2, batch_size=args.batch_size, seed=args.seed)
 
       # Feature metadata
-      indcorr_meta = feature_mapping['indcorr']
+      ind_meta = feature_mapping['ind']
       desc_meta = feature_mapping['desc']
+      corr_meta = feature_mapping['corr']
       sens_meta = feature_mapping['sens']
 
-      model = CEVAEHE(
-        indcorr_meta, desc_meta, sens_meta, args=args
-      )
+      model = CEVAEHE(ind_meta, desc_meta, corr_meta, sens_meta, 
+                    args=args)
       
       train_cevaehe(
         model,
@@ -96,12 +97,7 @@ def main():
         args
       )
 
-      set_global_seeds(args.seed)
-      full_loader, _ = make_bucketed_loader(
-        run_dataset, feature_mapping,
-        val_size=0, batch_size=args.batch_size, seed=args.seed)
-
-      _, perf_metrics = test_ceveahe(model, full_loader, logger, args)
+      _, perf_metrics, _ = test_ceveahe(model, test_loader, logger, args)
 
       res_entry = {"run": f"{i}_{run_id}"} | current_params | perf_metrics
       all_results.append(res_entry)
@@ -122,6 +118,8 @@ def main():
 
     gc.collect()
 
+
+  
 if __name__ == "__main__":
   main()
   
