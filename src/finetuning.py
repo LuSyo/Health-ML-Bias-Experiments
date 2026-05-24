@@ -80,12 +80,11 @@ def main():
         val_size=0.2, batch_size=args.batch_size, seed=args.seed)
 
       # Feature metadata
-      indcorr_meta = feature_mapping['indcorr']
       desc_meta = feature_mapping['desc']
       sens_meta = feature_mapping['sens']
 
       model = CEVAEHE(
-        indcorr_meta, desc_meta, sens_meta, args=args
+        desc_meta, sens_meta, args=args
       )
       
       train_cevaehe(

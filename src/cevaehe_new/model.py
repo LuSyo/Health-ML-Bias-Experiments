@@ -4,13 +4,28 @@ from torch import nn
 import numpy as np
 import copy
 
+class GradientReversal(torch.autograd.Function):
+  @staticmethod
+  def forward(ctx, x, alpha):
+      ctx.alpha = alpha
+      return x.view_as(x)
+
+  @staticmethod
+  def backward(ctx, *grad_outputs):
+      # Reverse the gradient direction by multiplying by -alpha
+      grad_output = grad_outputs[0]
+      grad_input = grad_output.neg() * ctx.alpha
+      return grad_input, None
+
+def grad_reverse(x, alpha=1.0):
+    return GradientReversal.apply(x, alpha)
+
 class CEVAEHE(nn.Module):
-  def __init__(self, indcorr_meta, desc_meta, sens_meta, args):
+  def __init__(self, desc_meta, sens_meta, args):
     super(CEVAEHE, self).__init__()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    self.indcorr_meta = indcorr_meta
     self.desc_meta = desc_meta
     self.sens_meta = sens_meta
 
@@ -28,15 +43,14 @@ class CEVAEHE(nn.Module):
           total_dim += self.embedding_dim
         else:
           total_dim += 1
-      return total_dim#
+      return total_dim
 
-    self.indcorr_dim = get_bucket_dim(self.indcorr_meta)
     self.desc_dim = get_bucket_dim(self.desc_meta)
     self.sens_dim = get_bucket_dim(self.sens_meta)
     self.target_dim = 1
     self.args = args
     self.device = args.device
-    self.ud_dim = math.ceil(self.desc_dim / 2)
+    self.ud_dim = math.ceil(self.desc_dim / 3)
     self.h_dim = args.h_dim
     self.batch_size = args.batch_size
 
@@ -78,9 +92,9 @@ class CEVAEHE(nn.Module):
         nn.Linear(self.h_dim, out_dim)
       )
 
-    # Y Decoder (U_d, X_indcorr, S) -> Y
+    # Y Decoder (U_d, S) -> Y
     self.decoder_target = nn.Sequential(
-      nn.Linear(self.ud_dim + self.indcorr_dim + self.sens_dim, self.h_dim),
+      nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
       self.act_fn,
       nn.Linear(self.h_dim, self.target_dim)
     )
@@ -95,17 +109,6 @@ class CEVAEHE(nn.Module):
       nn.LeakyReLU(0.2, True),
       nn.Linear(self.h_dim, 1)
     )
-
-    # # Discriminator
-    # self.discriminator = nn.Sequential(
-    #   nn.Linear(self.ud_dim + self.sens_dim, self.h_dim),
-    #   nn.LeakyReLU(0.2, True),
-    #   nn.Linear(self.h_dim, self.h_dim),
-    #   nn.LeakyReLU(0.2, True),
-    #   nn.Linear(self.h_dim, self.h_dim),
-    #   nn.LeakyReLU(0.2, True),
-    #   nn.Linear(self.h_dim, 1)
-    # )
 
     self.init_params()
 
@@ -203,7 +206,7 @@ class CEVAEHE(nn.Module):
 
     return mu_desc, logvar_desc
 
-  def decode(self, u_desc, x_indcorr, x_sens):
+  def decode(self, u_desc, x_sens):
     '''
       Decoders forward pass
 
@@ -217,7 +220,6 @@ class CEVAEHE(nn.Module):
     batch_size = x_sens.size(0)
 
     # Process raw tensors
-    x_indcorr_p = self._process_features(x_indcorr, self.indcorr_meta)
     x_sens_p = self._process_features(x_sens, self.sens_meta)
 
     # Xdesc
@@ -232,7 +234,7 @@ class CEVAEHE(nn.Module):
 
     # Target outcome
     input_target = torch.cat(
-      [t for t in (u_desc, x_indcorr_p, x_sens_p)
+      [t for t in (u_desc, x_sens_p)
       if t is not None], dim=1
     )
     y_pred_logits = self.decoder_target(input_target)
@@ -255,7 +257,7 @@ class CEVAEHE(nn.Module):
 
     # Counterfactual target outcome
     input_target_cf = torch.cat(
-      [t for t in (u_desc, x_indcorr_p, x_sens_cf_p)
+      [t for t in (u_desc, x_sens_cf_p)
       if t is not None], dim=1
     )
     y_pred_cf_logits = self.decoder_target(input_target_cf)
@@ -323,15 +325,20 @@ class CEVAEHE(nn.Module):
   def tc_loss(self, u_desc, x_sens):
     """
     Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
-    """
+    """  
     x_sens = x_sens.squeeze()
+    u_desc_reversed = grad_reverse(u_desc, alpha=1.0)
     
-    disc_logits = self.discriminate(u_desc)
+    disc_logits = self.discriminate(u_desc_reversed)
 
-    target_uncertain = torch.full_like(disc_logits, 0.5)
+    target_sens = x_sens.float().view_as(disc_logits)
 
-    tc_L = nn.BCEWithLogitsLoss()(disc_logits, target_uncertain)
-    
+    num_pos = (target_sens == 1.0).sum()
+    num_neg = (target_sens == 0.0).sum()
+    pos_weight = num_neg / (num_pos + 1e-5)
+
+    tc_L = nn.BCEWithLogitsLoss(pos_weight=pos_weight)(disc_logits, target_sens)
+    # tc_L = nn.BCEWithLogitsLoss()(disc_logits, target_sens)
     return tc_L
 
   def disc_loss(self, u_desc, x_sens):
@@ -366,7 +373,7 @@ class CEVAEHE(nn.Module):
     return disc_L, disc_balanced_acc
 
 
-  def calculate_loss(self, x_indcorr, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight):
+  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight):
     '''
       Calculates all components of the VAE loss in training
 
@@ -393,8 +400,6 @@ class CEVAEHE(nn.Module):
       x_desc, x_sens, y=None
     )
 
-    u_desc = self.reparameterize(mu_desc, logvar_desc)
-
     # DISTILLATION between abduction and inference latent distributions
     distill_L = self.kl_div(
       mu_desc.detach(), logvar_desc.detach(),
@@ -406,9 +411,21 @@ class CEVAEHE(nn.Module):
     u_desc_inf = self.reparameterize(mu_desc_inf, logvar_desc_inf)
 
     # ABDUCTION DECODING
-    x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits= self.decode(u_desc, x_indcorr, x_sens)
+    x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits= self.decode(u_desc, x_sens)
 
-    # RECONSTRUCTION LOSS
+    # RECONSTRUCTION AND PREDICTION LOSS
+    # groups = torch.unique(x_sens).int()
+    # group_desc_recon_losses = []
+    # group_y_pred_losses = []
+    # for g in groups:
+    #   mask = x_sens.flatten() == g
+    #   g_desc_recon_L = self.reconstruction_loss(x_desc_recon_logits[mask], x_desc[mask], self.desc_meta)
+    #   group_desc_recon_losses.append(g_desc_recon_L)
+    #   g_y_pred_L = nn.BCEWithLogitsLoss()(y_pred_logits[mask], y[mask])
+    #   group_y_pred_losses.append(g_y_pred_L)
+
+    # desc_recon_L = self.args.desc_a * sum(group_desc_recon_losses)
+    # y_recon_L = self.args.pred_a * sum(group_y_pred_losses)
     desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_recon_logits, x_desc, self.desc_meta)
     y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_logits, y)
     recon_L = desc_recon_L + y_recon_L
@@ -451,14 +468,14 @@ class CEVAEHE(nn.Module):
       "tc_L": tc_weight * tc_L,
       "cf_invar_L": cf_invar_weight * cf_invar_L,
       "distill_L": distill_weight * distill_L,
-      "u_desc": u_desc.detach(),
+      "u_desc": u_desc,
       "mu_desc": mu_desc.detach(),
       "logvar_desc": logvar_desc.detach(),
       "u_desc_inf": u_desc_inf.detach()
     }
   
 class EarlyStopping:
-  def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10):
+  def __init__(self, checkpoint_path, patience=10, min_delta=8e-3, alpha=0.05, start_epoch=10, max_epoch=200):
     self.patience = patience
     self.min_delta = min_delta
     self.checkpoint_path = checkpoint_path
@@ -470,13 +487,11 @@ class EarlyStopping:
     self.early_stop = False 
     self.alpha = alpha
     self.start_epoch = start_epoch
+    self.max_epoch = max_epoch
 
   def __call__(self, current_recon, current_tc, current_cf_invar, current_epoch, checkpoint_dict):
     if current_epoch < self.start_epoch:
       return 
-
-    if current_epoch == self.start_epoch:
-      self.save_checkpoint(checkpoint_dict)
 
     # Priority 1. Monitor stability of TC loss
     if self.ema_tc is None:
@@ -514,11 +529,15 @@ class EarlyStopping:
 
     # Increment the counter only if recon has not improved AND losses stable
     if not recon_improved and tc_is_stable and cf_invar_is_stable:
+      if self.counter == 0:
+        self.save_checkpoint(checkpoint_dict)
       self.counter += 1
     else: 
       self.counter = 0
       if recon_improved:
         self.best_recon = self.ema_recon
+
+      if (current_epoch == self.start_epoch) or (current_epoch == self.max_epoch - 1):
         self.save_checkpoint(checkpoint_dict)
 
     if self.counter >= self.patience:

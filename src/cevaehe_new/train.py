@@ -40,7 +40,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   early_stopping = EarlyStopping(
     patience=args.early_stop_patience, 
     checkpoint_path=checkpoint_file,
-    start_epoch=max(args.early_stop_start, args.kl_warm_up, args.tc_warm_up, args.distill_warm_up, args.cf_invar_warm_up))
+    start_epoch=max(args.early_stop_start, args.kl_warm_up, args.tc_warm_up, args.distill_warm_up, args.cf_invar_warm_up),
+    max_epoch=args.n_epochs)
 
   training_log = []
   last_train_results = None
@@ -100,58 +101,54 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       x_indcorr, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2 =\
       [tensor.to(device) for tensor in batch]
 
-      # Reset optimiser gradients
+      # INDEPENDENT DISCRIMINATOR UPDATE
       discrim_optimiser.zero_grad()
-      main_optimiser.zero_grad()
 
-      # Forward pass and loss calculation
+      if i % args.disc_step == 0:
+        with torch.no_grad():
+          mu_desc_d, logvar_desc_d = model.encode(x_desc, x_sens, y)
+          u_desc_d = model.reparameterize(mu_desc_d, logvar_desc_d)
+        
+        disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens)
+        disc_L.backward()
+
+        # Track discriminator gradients
+        disc_input_norm = get_mean_grad_norm(model.discriminator[0])
+        epoch_grad_norms['disc_input_grad_norm'].append(disc_input_norm)
+        disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
+        epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)   
+        
+        discrim_optimiser.step()
+      else:
+        with torch.no_grad():
+          mu_desc_d, logvar_desc_d = model.encode(x_desc, x_sens, y)
+          u_desc_d = model.reparameterize(mu_desc_d, logvar_desc_d)
+          disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens)
+
+      # MAIN VAE UPDATE
+      main_optimiser.zero_grad()
+      
       vae_outputs = model.calculate_loss(
-        x_indcorr, x_desc, x_sens, y, 
+        x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
         distill_weight, kl_weight, tc_weight, cf_invar_weight
       )
 
-      # VAE backpropagation
       vae_outputs["total_vae_loss"].backward()
 
-      # Discriminator Loss
-      discrim_optimiser.zero_grad()
-      if i % args.disc_step == 0:
-        disc_L, disc_bal_acc = model.disc_loss(
-          vae_outputs["u_desc"], 
-          x_sens
-        )
-
-        # Discriminator backpropagation
-        disc_L.backward(retain_graph=True)
-
-        # GRADIENTS LOGGING
-        disc_input_norm = get_mean_grad_norm(model.discriminator[0])
-        epoch_grad_norms['disc_input_grad_norm'].append(disc_input_norm)
-        disc_output_norm = get_mean_grad_norm(model.discriminator[-1])
-        epoch_grad_norms['disc_output_grad_norm'].append(disc_output_norm)
-
-        discrim_optimiser.step()
-      else:
-        with torch.no_grad():
-          disc_L, disc_bal_acc = model.disc_loss(
-              vae_outputs["u_desc"], 
-              x_sens
-            )
-      
-      main_optimiser.step()
-      
-      # GRADIENTS LOGGING
+      # Track encoder gradients
       enc_desc_norm = get_mean_grad_norm(model.encoder_desc)
       epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
+
+      main_optimiser.step()
 
       # OUTPUTS
       all_y_true.append(y)
       all_x_sens.append(x_sens)
-      all_u_desc.append(vae_outputs["u_desc"])
-      all_u_desc_inf.append(vae_outputs["u_desc_inf"])
-      all_mu_desc.append(vae_outputs["mu_desc"])
-      all_logvar_desc.append(vae_outputs["logvar_desc"])
+      all_u_desc.append(vae_outputs["u_desc"].detach())
+      all_u_desc_inf.append(vae_outputs["u_desc_inf"].detach())
+      all_mu_desc.append(vae_outputs["mu_desc"].detach())
+      all_logvar_desc.append(vae_outputs["logvar_desc"].detach())
 
       # LOSSES
       epoch_metrics['total_vae_loss'].append(vae_outputs["total_vae_loss"].item())
@@ -199,6 +196,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     # VALIDATION
     model.eval()
     val_recon_losses = []
+    val_tc_losses = []
+    val_cf_invar_losses = []
     val_disc_bal_accuracies = []
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
@@ -207,12 +206,14 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
           [tensor.to(device) for tensor in batch]
 
         vae_outputs = model.calculate_loss(
-          x_indcorr, x_desc, x_sens, y, 
+          x_desc, x_sens, y, 
           x_desc_2, x_sens_2, y_2, 
           distill_weight, kl_weight, tc_weight, cf_invar_weight
         )
 
         val_recon_losses.append((vae_outputs["desc_recon_L"] + vae_outputs["y_recon_L"]).item())
+        val_tc_losses.append(vae_outputs["tc_L"].item())
+        val_cf_invar_losses.append(vae_outputs["cf_invar_L"].item())
 
         _, val_disc_bal_acc = model.disc_loss(
           vae_outputs["u_desc"], 
@@ -221,6 +222,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         val_disc_bal_accuracies.append(val_disc_bal_acc)
 
     avg_val_recon_loss = np.mean(val_recon_losses)
+    avg_val_tc_loss = np.mean(val_tc_losses)
+    avg_val_cf_invar_loss = np.mean(val_cf_invar_losses)
     training_log[-1]['avg_val_recon_loss'] = avg_val_recon_loss
     training_log[-1]['avg_val_disc_bal_acc'] = np.mean(val_disc_bal_accuracies)
 
@@ -233,8 +236,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     }
     early_stopping(
       current_recon=avg_val_recon_loss, 
-      current_tc=training_log[-1]['avg_tc_loss'], 
-      current_cf_invar=training_log[-1]['avg_cf_invar_loss'], 
+      current_tc=avg_val_tc_loss, 
+      current_cf_invar=avg_val_cf_invar_loss, 
       current_epoch=epoch,
       checkpoint_dict=checkpoint_dict)
     

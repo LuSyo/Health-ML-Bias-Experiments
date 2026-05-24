@@ -63,7 +63,7 @@ def main():
     desc_meta = feature_mapping['desc']
     sens_meta = feature_mapping['sens']
 
-    model = CEVAEHE(indcorr_meta, desc_meta, sens_meta, args=args)
+    model = CEVAEHE(desc_meta, sens_meta, args=args)
     
     logger.info(f'U_desc dimension: {model.ud_dim}')
     logger.info('='*30)

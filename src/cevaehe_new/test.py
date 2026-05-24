@@ -32,7 +32,7 @@ def test_ceveahe(model, test_loader, logger, args):
       u_desc = model.reparameterize(mu_desc, logvar_desc)
 
       x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits = model.decode(
-        u_desc, x_indcorr, x_sens
+        u_desc, x_sens
       )
 
       all_y_true.append(y)
@@ -120,13 +120,12 @@ def test_ceveahe(model, test_loader, logger, args):
     std_u_s_bal_acc = 0
 
   logger.info("----- TEST RESULTS -----")
-  logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L:.4f}')
-  logger.info(f'Prediction loss, Y: {y_recon_L:.4f}')
+  logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L / args.desc_a:.4f}')
+  logger.info(f'Prediction loss, Y: {y_recon_L / args.pred_a:.4f}')
   logger.info(f'Xdesc -> Y, AUPRC: {mean_x_auprc:.4f} (std. {std_x_auprc:.4f})')
   logger.info(f'Udesc -> Y, AUPRC: {mean_u_auprc:.4f} (std. {std_u_auprc:.4f})')
   logger.info(f'Xdesc -> S, Balanced Accuracy: {mean_x_s_bal_acc:.4f} (std. {std_x_s_bal_acc:.4f})')
   logger.info(f'Udesc -> S, Balanced Accuracy: {mean_u_s_bal_acc:.4f} (std. {std_u_s_bal_acc:.4f})')
-  logger.info(f'Prevalence: {prevalence:.4f}')
 
   perf_metrics = {
     "desc_recon_loss": desc_recon_L,
@@ -193,7 +192,7 @@ def generate_fair_dataset(model, dataset, feature_mapping, args):
 
       # Decode into counterfactual features and outcome
       _, _, x_desc_recon_cf_flat, y_pred_cf_logits_flat = model.decode(
-        u_desc_flat, x_indcorr_flat, x_sens_flat
+        u_desc_flat, x_sens_flat
       )
 
       # Move to CPU and numpy
