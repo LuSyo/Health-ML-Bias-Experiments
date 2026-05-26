@@ -162,7 +162,6 @@ def _audit_pathway_config(dataset, mapping, iteration, run_id, all_features, log
   
   # 2. Initialize Model with current SCM
   model = CEVAEHE(
-    indcorr_meta=mapping['indcorr'], 
     desc_meta=mapping['desc'], 
     sens_meta=mapping['sens'], 
     args=args
@@ -339,7 +338,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       u_desc = model.reparameterize(mu_desc, logvar_desc)
 
       x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits = model.decode(
-        u_desc, x_indcorr, x_sens
+        u_desc, x_sens
       )
 
       all_y_true.append(y)
@@ -368,7 +367,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
   
   if len(desc_features):
     
-    # Probe trained on (X_indcorr, X_desc, S)
+    # Probe trained on (X_indcorr, X_desc)
     # Global AUPRC 
     x_probe_input = np.concatenate([all_x_indcorr_np, all_x_desc_np], axis=1)
     x_probe_cf_input = np.concatenate([all_x_indcorr_np, all_x_desc_cf_np], axis=1)
@@ -382,7 +381,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       seed = args.seed
     )
     
-    # Probe trained on (X_indcorr, U_desc, S)
+    # Probe trained on (X_indcorr, U_desc)
     # Global AUPRC 
     u_probe_input = np.concatenate([all_x_indcorr_np, all_u_desc_np], axis=1)
 

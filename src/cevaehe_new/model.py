@@ -426,9 +426,9 @@ class CEVAEHE(nn.Module):
 
     # desc_recon_L = self.args.desc_a * sum(group_desc_recon_losses)
     # y_recon_L = self.args.pred_a * sum(group_y_pred_losses)
-    desc_recon_L = self.args.desc_a * self.reconstruction_loss(x_desc_recon_logits, x_desc, self.desc_meta)
-    y_recon_L = self.args.pred_a * nn.BCEWithLogitsLoss()(y_pred_logits, y)
-    recon_L = desc_recon_L + y_recon_L
+    desc_recon_L = self.reconstruction_loss(x_desc_recon_logits, x_desc, self.desc_meta)
+    y_recon_L = nn.BCEWithLogitsLoss()(y_pred_logits, y)
+    recon_L = self.args.desc_a * desc_recon_L + self.args.pred_a * y_recon_L
 
     # KL DIVERGENCE
     kl_L = self.kl_loss(mu_desc, logvar_desc)

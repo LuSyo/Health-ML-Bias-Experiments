@@ -95,21 +95,28 @@ def main():
     train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
     train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
 
+    if train_results is not None:      
+      mu_desc_0 = np.stack(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].tolist())
+      logvar_desc_0 = np.stack(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].tolist())
+      mu_desc_1 = np.stack(train_results.loc[train_results['x_sens'] == 1, 'mu_desc'].tolist())
+      logvar_desc_1 = np.stack(train_results.loc[train_results['x_sens'] == 1, 'mu_desc'].tolist())
 
-    if train_results is not None:
-      u_desc_mu_0 = np.array(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].to_list()).mean()
-      logvars_0 = np.array(train_results.loc[train_results['x_sens'] == 0, 'logvar_desc'].to_list())
-      u_desc_var_0 = np.exp(logvars_0).mean()
+      latent_dist_dict = {}
+      for dim in range(model.ud_dim):
+        u_desc_mu_0 = mu_desc_0[dim].mean()
+        logvars_0 = logvar_desc_0[dim]
+        u_desc_var_0 = np.exp(logvars_0).mean()
 
-      u_desc_mu_1 = np.array(train_results.loc[train_results['x_sens'] == 1, 'mu_desc'].to_list()).mean()
-      logvars_1 = np.array(train_results.loc[train_results['x_sens'] == 1, 'logvar_desc'].to_list())
-      u_desc_var_1 = np.exp(logvars_1).mean()
+        u_desc_mu_1 = mu_desc_1[dim].mean()
+        logvars_1 = logvar_desc_1[dim]
+        u_desc_var_1 = np.exp(logvars_1).mean()
+
+        latent_dist_dict[f"Udesc_{dim} Mean"] = [u_desc_mu_0, u_desc_mu_1]
+        latent_dist_dict[f"Udesc_{dim} Variance"] = [u_desc_var_0, u_desc_var_1]
 
       strat_latent_dist_params = pd.DataFrame({
-        "S Group": [0, 1],
-        "Udesc Mean": [u_desc_mu_0, u_desc_mu_1],
-        "Udesc Variance": [u_desc_var_0, u_desc_var_1]
-      })
+        "S Group": [0, 1]
+      } | latent_dist_dict)
 
       strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
 

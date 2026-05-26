@@ -55,14 +55,11 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
   # ADVERSERIAL LOSS ASYMPTOTES
   train_s_np = train_loader.dataset.tensors[2].cpu().numpy()
-  s_prevalence = np.mean(train_s_np)
-  
-  tc_chance_floor = -np.log(0.5)
-  disc_chance_floor = 2.0 * (1.0 - s_prevalence) * np.log(2.0)
+  disc_chance_floor, s_prevalence = get_baseline_bce(train_s_np, weighted=True)  
 
   logger.info(f"Training Sensitive Attribute (S) Prevalence: {s_prevalence:.4f}")
-  logger.info(f"Expected VAE TC Loss floor: {tc_chance_floor:.4f}")
-  logger.info(f"Expected Discriminator Loss ceiling: {disc_chance_floor:.4f}")
+  # logger.info(f"Expected VAE TC Loss floor: {tc_chance_floor:.4f}")
+  logger.info(f"Expected Discriminator Loss ceiling/floor: {disc_chance_floor:.4f}")
   logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
 
   for epoch in range(args.n_epochs):

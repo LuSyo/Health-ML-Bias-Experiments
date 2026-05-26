@@ -18,7 +18,7 @@ def test_ceveahe(model, test_loader, logger, args):
 
    # BASELINE Y_RECON_L
   test_y_np = test_loader.dataset.tensors[3].cpu().numpy()
-  y_baseline_bce, y_prevalence = get_baseline_bce(test_y_np)
+  y_baseline_bce, y_prevalence = get_baseline_bce(test_y_np, weighted=False)
       
   logger.info(f"Test target prevalence: {y_prevalence:.4f}")
   logger.info(f"Test Baseline BCE (y_recon_L ceiling): {y_baseline_bce:.4f}")
@@ -74,9 +74,6 @@ def test_ceveahe(model, test_loader, logger, args):
 
   desc_recon_L = model.reconstruction_loss(all_x_desc_recon_logits, all_x_desc, model.desc_meta).item()
   y_recon_L = nn.BCEWithLogitsLoss()(all_pred_logits, all_y_true).item()
-
-  prevalence = test_outputs['y_true'].sum() / test_outputs['y_true'].size
-
   
   if len(model.desc_meta) > 0:
     # Latent utility
@@ -120,8 +117,8 @@ def test_ceveahe(model, test_loader, logger, args):
     std_u_s_bal_acc = 0
 
   logger.info("----- TEST RESULTS -----")
-  logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L / args.desc_a:.4f}')
-  logger.info(f'Prediction loss, Y: {y_recon_L / args.pred_a:.4f}')
+  logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L:.4f}')
+  logger.info(f'Prediction loss, Y: {y_recon_L:.4f}')
   logger.info(f'Xdesc -> Y, AUPRC: {mean_x_auprc:.4f} (std. {std_x_auprc:.4f})')
   logger.info(f'Udesc -> Y, AUPRC: {mean_u_auprc:.4f} (std. {std_u_auprc:.4f})')
   logger.info(f'Xdesc -> S, Balanced Accuracy: {mean_x_s_bal_acc:.4f} (std. {std_x_s_bal_acc:.4f})')
