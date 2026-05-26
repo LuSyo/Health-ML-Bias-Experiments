@@ -4,7 +4,7 @@ sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 python3 src/bootstrap.py \
   --exp_name "21MAY_CLASSIFIERS_B_1_train_set" \
-  --data "heart_disease_train.csv" \
+  --data "heart_disease_test.csv" \
   --mapping "configs/scm/uci_scm_config_simplified_3.json" \
   --cevaehe "21MAY_CEVAEHE_B_1_cevaehe.pth" \
   --cf_dataset "21MAY_CEVAEHE_B_1/test_counterfactuals.csv" \
