@@ -30,12 +30,11 @@ class Config:
   EARLY_STOP_START = 50
 
   # CEVAE-HE loss scaling factors
-  CORR_RECON_ALPHA = 1
   DESC_RECON_ALPHA = 1
   PRED_ALPHA = 2
-  FAIR_BETA = 1
   TC_BETA = 5
-  U_IND_BETA = 1
+  CF_INVAR_BETA = 1
+  GROUP_ETA = 2
 
   # Classifier training params
   M_SAMPLES = 3

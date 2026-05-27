@@ -47,6 +47,7 @@ class CEVAEHE(nn.Module):
 
     self.desc_dim = get_bucket_dim(self.desc_meta)
     self.sens_dim = get_bucket_dim(self.sens_meta)
+    self.sens_groups = self.sens_dim if self.sens_meta[0]['type'] == 'categorical' else self.sens_dim + 1
     self.target_dim = 1
     self.args = args
     self.device = args.device
@@ -300,6 +301,43 @@ class CEVAEHE(nn.Module):
 
     return total_recon_L / sample_size
 
+  def group_recon_losses(self, x_sens, x_desc, x_desc_recon_logits, y, y_pred_logits, group_weights=None):
+    """
+    Computes the group-decomposed reconstruction and prediction losses
+    """
+    sens_flat = x_sens.flatten()
+    stratified_recon_losses = torch.zeros(self.sens_groups, device=self.device)
+    group_y_recon_losses = torch.zeros(self.sens_groups, device=self.device)
+    group_desc_recon_losses = torch.zeros(self.sens_groups, device=self.device)
+
+    for g in range(self.sens_groups):
+      mask = (sens_flat == g)
+
+      if mask.sum() == 0:
+        continue
+
+      # Subgroup Xdesc reconstruction loss
+      g_x_desc_recon_logits = {feat_name: logits[mask] for feat_name, logits in x_desc_recon_logits.items()}
+      g_desc_recon = self.reconstruction_loss(g_x_desc_recon_logits, x_desc[mask], self.desc_meta)
+      group_desc_recon_losses[g] = g_desc_recon
+
+      # Subgroup prediction loss
+      g_y_recon = nn.BCEWithLogitsLoss()(y_pred_logits[mask], y[mask])
+      group_y_recon_losses[g] = g_y_recon
+
+      # Total subgroup reconstruction loss
+      stratified_recon_losses[g] = self.args.desc_a * g_desc_recon + self.args.pred_a * g_y_recon
+    
+    y_recon_L = sum(group_y_recon_losses)
+    desc_recon_L = sum(group_desc_recon_losses)
+    
+    if group_weights is not None:
+      recon_L = sum([g_weight * g_loss for g_weight, g_loss in zip(group_weights, stratified_recon_losses)])
+    else:
+      recon_L = stratified_recon_losses.mean()
+
+    return recon_L, y_recon_L, desc_recon_L, stratified_recon_losses
+
   def kl_loss(self, mu, logvar):
     '''
       Calculates the KL divergence for the given latent variable between the posterior q(u|x,y,a) and the standard normal prior p(u) = N(0,I)
@@ -373,7 +411,7 @@ class CEVAEHE(nn.Module):
     return disc_L, disc_balanced_acc
 
 
-  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight):
+  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, group_weights=None):
     '''
       Calculates all components of the VAE loss in training
 
@@ -430,6 +468,15 @@ class CEVAEHE(nn.Module):
     y_recon_L = nn.BCEWithLogitsLoss()(y_pred_logits, y)
     recon_L = self.args.desc_a * desc_recon_L + self.args.pred_a * y_recon_L
 
+    recon_L, y_recon_L, desc_recon_L, stratified_recon_losses = self.group_recon_losses(
+      x_sens,
+      x_desc,
+      x_desc_recon_logits,
+      y,
+      y_pred_logits,
+      group_weights
+    )
+
     # KL DIVERGENCE
     kl_L = self.kl_loss(mu_desc, logvar_desc)
 
@@ -464,6 +511,7 @@ class CEVAEHE(nn.Module):
       "total_vae_loss": total_vae_loss,
       "desc_recon_L": desc_recon_L,
       "y_recon_L": y_recon_L,
+      "stratified_recon_losses": stratified_recon_losses,
       "kl_L": kl_weight * kl_L,
       "tc_L": tc_weight * tc_L,
       "cf_invar_L": cf_invar_weight * cf_invar_L,

@@ -94,6 +94,11 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
     cf_invar_weight = get_anneal_weight(epoch, args.cf_invar_warm_up, args.cf_invar_b)
 
+    # Tracking group recon loss across batches
+    epoch_strat_recon_losses = torch.zeros(model.sens_groups, device=device)
+    loss_ema_gamma = 0.1
+    group_eta = args.group_eta
+
     for i, batch in enumerate(train_loader):
       x_indcorr, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2 =\
       [tensor.to(device) for tensor in batch]
@@ -124,14 +129,24 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
       # MAIN VAE UPDATE
       main_optimiser.zero_grad()
+
+      # Update group weights
+      with torch.no_grad():
+        group_weights = torch.softmax(group_eta * epoch_strat_recon_losses, dim=0)
       
       vae_outputs = model.calculate_loss(
         x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
-        distill_weight, kl_weight, tc_weight, cf_invar_weight
+        distill_weight, kl_weight, tc_weight, cf_invar_weight,
+        group_weights=group_weights
       )
 
       vae_outputs["total_vae_loss"].backward()
+
+      # Update group loss tracking
+      with torch.no_grad():
+        for g, g_loss in enumerate(vae_outputs['stratified_recon_losses']):
+          epoch_strat_recon_losses[g] = (1 - loss_ema_gamma) * epoch_strat_recon_losses[g] + loss_ema_gamma * g_loss
 
       # Track encoder gradients
       enc_desc_norm = get_mean_grad_norm(model.encoder_desc)

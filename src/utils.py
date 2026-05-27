@@ -52,13 +52,11 @@ def parse_args():
   # CEVAE-HE 
   parser.add_argument('--h_dim', type=int, default=Config.H_DIM)
   parser.add_argument('--act_fn', type=str, default=Config.ACT_FN)
-  parser.add_argument('--corr_a', type=float, default=Config.CORR_RECON_ALPHA) # DELETE
   parser.add_argument('--desc_a', type=float, default=Config.DESC_RECON_ALPHA)
   parser.add_argument('--pred_a', type=float, default=Config.PRED_ALPHA)
-  parser.add_argument('--fair_b', type=float, default=Config.FAIR_BETA) # DELETE
-  parser.add_argument('--cf_invar_b', type=float, default=Config.FAIR_BETA)
+  parser.add_argument('--cf_invar_b', type=float, default=Config.CF_INVAR_BETA)
   parser.add_argument('--tc_b', type=float, default=Config.TC_BETA)
-  parser.add_argument('--u_ind_b', type=float, default=Config.U_IND_BETA) # DELETE
+  parser.add_argument('--group_eta', type=float, default=Config.GROUP_ETA)
 
   # Latent space sampling
   parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
