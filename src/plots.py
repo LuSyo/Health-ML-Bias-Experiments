@@ -3,32 +3,41 @@ import seaborn as sns
 import numpy as np
 from sklearn.manifold import TSNE
 
-def train_val_recon_loss_curve(training_metrics, show=False):
+def train_val_recon_loss_curve(training_metrics, show=False, sens_groups=2):
   n_epochs = len(training_metrics.index)
-  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 4))
-  avg_train_recon_loss = training_metrics["avg_desc_recon_loss"]\
-                        + training_metrics["avg_y_recon_loss"]
-  sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=ax, label='Train Reconstruction Loss', errorbar=None)
-  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_recon_loss"], ax=ax, label='Val Reconstruction Loss', errorbar=None)
-  plt.legend()
+  fig, axes = plt.subplots(
+    sens_groups + 2, 1, 
+    figsize=(0.05 * n_epochs + 1, 4 * (sens_groups + 2)), 
+    sharex=True, 
+    sharey=True, 
+    squeeze=False
+  )
+
+  axes = axes.flatten()
+  y_lim = 0
+
+  for g in range(sens_groups):
+    avg_train_recon_loss = training_metrics[f"avg_group_{g}_loss"]
+    avg_val_recon_loss = training_metrics[f"avg_val_group_{g}_loss"]
+    y_lim = max(np.min(avg_train_recon_loss) * 3, np.min(avg_val_recon_loss) * 3, y_lim)
+
+    sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=axes[g], label='Train Reconstruction Loss', errorbar=None)
+    sns.lineplot(x=training_metrics.index+.5, y=avg_val_recon_loss, ax=axes[g], label='Val Reconstruction Loss', errorbar=None)
+    axes[g].set_title(f"Sensitive group {g}")
+    axes[g].set_ylabel('Total Reconstruction Loss')
+
+    sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=axes[sens_groups], label=f'Group {g}', errorbar=None)
+    sns.lineplot(x=training_metrics.index+.5, y=avg_val_recon_loss, ax=axes[sens_groups + 1], label=f'Group {g}', errorbar=None)
+  
+  axes[sens_groups].set_title("Training losses")
+  axes[sens_groups + 1].set_title("Validation losses")
+  for ax in axes:
+    ax.minorticks_on()
+    ax.tick_params(axis='y', which='minor', color='#999999')
+    ax.tick_params(axis='y', which='major', color='#111111')
+    ax.grid(visible=True, which='both')
+  plt.ylim(bottom=0, top=y_lim)
   plt.xlabel('Epoch')
-  plt.ylabel('Total Reconstruction Loss')
-
-  if show: plt.show()
-
-  return fig
-
-def train_val_loss_curve(training_metrics, show=False):
-  n_epochs = len(training_metrics.index)
-  fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 4))
-  avg_train_recon_loss = training_metrics["avg_corr_recon_loss"]\
-                        + training_metrics["avg_desc_recon_loss"]\
-                        + training_metrics["avg_y_recon_loss"]
-  sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=ax, label='Train Reconstruction Loss', errorbar=None)
-  sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_recon_loss"], ax=ax, label='Val Reconstruction Loss', errorbar=None)
-  plt.legend()
-  plt.xlabel('Epoch')
-  plt.ylabel('Total Reconstruction Loss')
 
   if show: plt.show()
 
@@ -73,10 +82,10 @@ def KL_loss_curve(training_metrics, show=False):
 def all_VAE_losses_curve(training_metrics, show=False):
   n_epochs = len(training_metrics.index)
   fig, axes = plt.subplots(6, 1,figsize=(0.05*n_epochs+1, 20))
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
-               label="Effective X_desc Recon. Loss", ax=axes[0])
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
-               label="Effective Y Pred. Loss", ax=axes[1])
+  # sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
+  #              label="Effective X_desc Recon. Loss", ax=axes[0])
+  # sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
+  #              label="Effective Y Pred. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], 
                label="Effective KL Loss", ax=axes[2])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 

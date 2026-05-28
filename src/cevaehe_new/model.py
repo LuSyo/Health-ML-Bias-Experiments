@@ -328,15 +328,22 @@ class CEVAEHE(nn.Module):
       # Total subgroup reconstruction loss
       stratified_recon_losses[g] = self.args.desc_a * g_desc_recon + self.args.pred_a * g_y_recon
     
-    y_recon_L = sum(group_y_recon_losses)
-    desc_recon_L = sum(group_desc_recon_losses)
+    total_samples = x_sens.size(0)
+
+    # y_recon_L = sum([
+    #     (x_sens.flatten() == g).sum() * group_y_recon_losses[g] for g in range(self.sens_groups)
+    # ]) / total_samples
+
+    # desc_recon_L = sum([
+    #     (x_sens.flatten() == g).sum() * group_desc_recon_losses[g] for g in range(self.sens_groups)
+    # ]) / total_samples
     
     if group_weights is not None:
       recon_L = sum([g_weight * g_loss for g_weight, g_loss in zip(group_weights, stratified_recon_losses)])
     else:
       recon_L = stratified_recon_losses.mean()
 
-    return recon_L, y_recon_L, desc_recon_L, stratified_recon_losses
+    return recon_L, stratified_recon_losses
 
   def kl_loss(self, mu, logvar):
     '''
@@ -452,23 +459,7 @@ class CEVAEHE(nn.Module):
     x_desc_recon_logits, y_pred_logits, x_desc_recon_cf, y_pred_cf_logits= self.decode(u_desc, x_sens)
 
     # RECONSTRUCTION AND PREDICTION LOSS
-    # groups = torch.unique(x_sens).int()
-    # group_desc_recon_losses = []
-    # group_y_pred_losses = []
-    # for g in groups:
-    #   mask = x_sens.flatten() == g
-    #   g_desc_recon_L = self.reconstruction_loss(x_desc_recon_logits[mask], x_desc[mask], self.desc_meta)
-    #   group_desc_recon_losses.append(g_desc_recon_L)
-    #   g_y_pred_L = nn.BCEWithLogitsLoss()(y_pred_logits[mask], y[mask])
-    #   group_y_pred_losses.append(g_y_pred_L)
-
-    # desc_recon_L = self.args.desc_a * sum(group_desc_recon_losses)
-    # y_recon_L = self.args.pred_a * sum(group_y_pred_losses)
-    desc_recon_L = self.reconstruction_loss(x_desc_recon_logits, x_desc, self.desc_meta)
-    y_recon_L = nn.BCEWithLogitsLoss()(y_pred_logits, y)
-    recon_L = self.args.desc_a * desc_recon_L + self.args.pred_a * y_recon_L
-
-    recon_L, y_recon_L, desc_recon_L, stratified_recon_losses = self.group_recon_losses(
+    recon_L, stratified_recon_losses = self.group_recon_losses(
       x_sens,
       x_desc,
       x_desc_recon_logits,
@@ -509,8 +500,6 @@ class CEVAEHE(nn.Module):
 
     return {
       "total_vae_loss": total_vae_loss,
-      "desc_recon_L": desc_recon_L,
-      "y_recon_L": y_recon_L,
       "stratified_recon_losses": stratified_recon_losses,
       "kl_L": kl_weight * kl_L,
       "tc_L": tc_weight * tc_L,

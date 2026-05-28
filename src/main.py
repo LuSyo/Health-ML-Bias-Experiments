@@ -80,7 +80,7 @@ def main():
 
     training_metrics = pd.DataFrame(training_log)
 
-    train_val_recon_loss_fig = train_val_recon_loss_curve(training_metrics)
+    train_val_recon_loss_fig = train_val_recon_loss_curve(training_metrics, sens_groups=model.sens_groups)
     train_val_recon_loss_fig.savefig(f'{results_path}/train_val_recon_loss_curve.png', bbox_inches='tight')
 
     train_val_disc_acc_fig = disc_acc_train_val_curve(training_metrics)
