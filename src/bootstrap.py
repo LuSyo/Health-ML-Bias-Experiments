@@ -86,11 +86,13 @@ def main():
     sss = StratifiedShuffleSplit(n_splits=args.n_runs, test_size=0.3, random_state=args.seed)
 
     baseline_metrics = []
+    ablation_metrics = []
     baseline_unaware_metrics = []
     fair_metrics = []
     fair_unaware_metrics = []
 
     baseline_feat_imp = []
+    ablation_feat_imp = []
     baseline_unaware_feat_imp = []
     fair_feat_imp = []
     fair_unaware_feat_imp = []
@@ -99,15 +101,12 @@ def main():
 
     roc_curve_data = {
       model: {group: [] for group in sens_groups} 
-      for model in ['baseline', 'baseline_unaware', 'fair', 'fair_unaware']
+      for model in ['baseline', 'ablation', 'baseline_unaware', 'fair', 'fair_unaware']
     }
 
     logger.info("Performing initial hyperparameter tuning...")
     best_params = initial_hyperparam_tuning(X, y)
     logger.info(f"Best Params found: {best_params}")
-
-    # print(fair_dataset.head(5).to_markdown())
-    # print(cf_dataset.head(5).to_markdown())
 
     for i, (train_index, test_index) in enumerate(sss.split(X, y)):
       logger.info(f'--- Start bootstrap loop {i}')
@@ -115,6 +114,10 @@ def main():
       X_unaware_train = X_train.drop(x_sens_col, axis=1)
       X_unaware_test = X_test.drop(x_sens_col, axis=1)
       y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+      # Xindcorr only features
+      X_abla_train = X_train[x_indcorr_cols].copy()
+      X_abla_test = X_test[x_indcorr_cols].copy()
 
       # Fair training features and target
       fair_train_index = fair_dataset['patient_index'].isin(train_index)
@@ -155,6 +158,12 @@ def main():
       baseline_unaware_feat_imp.append(rf_baseline_unaware.feature_importances_)
 
       del rf_baseline_unaware
+
+      logger.info("Train ablation model (Xindcorr-only)")
+      rf_ablation, abla_y_pred, abla_y_pred_proba, abla_y_cf_pred_proba, abla_threshold = train_random_forest(
+        X_abla_train, y_train, X_abla_test, X_abla_test, 
+        best_params, args.target_ppv, args.seed)
+      ablation_feat_imp.append(rf_ablation.feature_importances_)
 
       logger.info("Train fair model")
       rf_fair, fair_y_pred, fair_y_pred_proba, fair_y_cf_pred_proba, fair_threshold = train_random_forest(
@@ -202,6 +211,15 @@ def main():
         threshold=baseline_threshold
       ))
 
+      ablation_metrics.append(get_baseline_metrics(
+        y_test=y_test, 
+        y_pred=abla_y_pred, 
+        y_pred_proba=abla_y_pred_proba, 
+        y_cf_pred_proba=abla_y_cf_pred_proba, 
+        X_test_sens=X_test[x_sens_col], 
+        threshold=abla_threshold
+      ))
+
       baseline_unaware_metrics.append(get_baseline_metrics(
         y_test=y_test, 
         y_pred=un_y_pred, 
@@ -236,6 +254,7 @@ def main():
 
       for name, curves in [
         ('baseline', get_grouped_roc_curve(y_test, y_pred_proba, X_test[x_sens_col])),
+        ('ablation', get_grouped_roc_curve(y_test, abla_y_pred_proba, X_test[x_sens_col])),
         ('baseline_unaware', get_grouped_roc_curve(y_test, un_y_pred_proba, X_test[x_sens_col])),
         ('fair', fair_roc_curves),
         ('fair_unaware', fair_un_roc_curves)
@@ -247,6 +266,9 @@ def main():
 
     baseline_metrics_df = pd.DataFrame(baseline_metrics) 
     baseline_metrics_df.to_csv(f'{results_path}/baseline_metrics.csv', index=False)
+
+    ablation_metrics_df = pd.DataFrame(ablation_metrics) 
+    ablation_metrics_df.to_csv(f'{results_path}/ablation_metrics.csv', index=False)
 
     baseline_unaware_metrics_df = pd.DataFrame(baseline_unaware_metrics) 
     baseline_unaware_metrics_df.to_csv(f'{results_path}/baseline_unaware_metrics.csv', index=False)
@@ -286,13 +308,14 @@ def main():
       importance_df.to_csv(f'{results_path}/{file_name}.csv', index=False)
 
     save_feat_imp(baseline_feat_imp, baseline_features, "baseline_feat_imp")
+    save_feat_imp(ablation_feat_imp, x_indcorr_cols, "ablation_feat_imp")
     save_feat_imp(baseline_unaware_feat_imp, baseline_unaware_features, "baseline_unaware_feat_imp")
     save_feat_imp(fair_feat_imp, fair_features, "fair_feat_imp")
     save_feat_imp(fair_unaware_feat_imp, fair_unaware_features, "fair_unaware_feat_imp")
 
     # del final_curves
-    del baseline_metrics_df, baseline_unaware_metrics_df, fair_metrics_df, fair_unaware_metrics_df
-    del baseline_metrics, baseline_unaware_metrics, fair_metrics, fair_unaware_metrics
+    del baseline_metrics_df, ablation_metrics_df, baseline_unaware_metrics_df, fair_metrics_df, fair_unaware_metrics_df
+    del baseline_metrics, ablation_metrics, baseline_unaware_metrics, fair_metrics, fair_unaware_metrics
     gc.collect()
     
   except Exception as e:

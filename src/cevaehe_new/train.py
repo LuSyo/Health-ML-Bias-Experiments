@@ -7,7 +7,7 @@ import torch
 import torch.optim as optim
 import os
 from config import Config
-from metrics import get_baseline_bce
+from metrics import get_baseline_bce, compute_group_entropies
 from cevaehe_new.model import EarlyStopping
 
 def get_anneal_weight(epoch, warm_up_epochs, loss_weight):
@@ -51,7 +51,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   y_baseline_bce, y_prevalence = get_baseline_bce(train_y_np)
       
   logger.info(f"Training target prevalence: {y_prevalence:.4f}")
-  logger.info(f"Training Baseline Y BCE (y_recon_L ceiling): {y_baseline_bce:.4f}")
+  # logger.info(f"Training Baseline Y BCE (y_recon_L ceiling): {y_baseline_bce:.4f}")
 
   # ADVERSERIAL LOSS ASYMPTOTES
   train_s_np = train_loader.dataset.tensors[2].cpu().numpy()
@@ -59,8 +59,22 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
   logger.info(f"Training Sensitive Attribute (S) Prevalence: {s_prevalence:.4f}")
   # logger.info(f"Expected VAE TC Loss floor: {tc_chance_floor:.4f}")
-  logger.info(f"Expected Discriminator Loss ceiling/floor: {disc_chance_floor:.4f}")
-  logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
+  # logger.info(f"Expected Discriminator Loss ceiling/floor: {disc_chance_floor:.4f}")
+  # logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
+
+
+  # Xdesc group entropy
+  train_x_desc = train_loader.dataset.tensors[1].cpu().numpy()
+  group_entropies = compute_group_entropies(
+    X=train_x_desc,
+    x_map=model.desc_meta,
+    x_sens=train_s_np,
+    n_bootstrap=200,
+    seed=args.seed
+  )
+  desc_entropy_weights = (1 / group_entropies) / np.sum(1 / group_entropies)
+  print(desc_entropy_weights)
+  desc_entropy_weights = torch.tensor(desc_entropy_weights, dtype=torch.float32, device=device)
 
   for epoch in range(args.n_epochs):
     logger.info(f'Epoch {epoch}')
@@ -141,14 +155,15 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
         distill_weight, kl_weight, tc_weight, cf_invar_weight,
-        group_weights=group_weights
+        group_weights=group_weights,
+        desc_entropy_weights=desc_entropy_weights
       )
 
       vae_outputs["total_vae_loss"].backward()
 
       # Update group loss tracking
       with torch.no_grad():
-        for g, g_loss in enumerate(vae_outputs['stratified_recon_losses']):
+        for g, g_loss in enumerate(vae_outputs['stratified_y_recon_loss']):
           # Only update weight if instances of the group are present in the batch
           if (x_sens.flatten() == g).sum() > 0:
             epoch_strat_recon_losses[g] = (1 - loss_ema_gamma) * epoch_strat_recon_losses[g] + loss_ema_gamma * g_loss
@@ -170,6 +185,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
       # LOSSES
       epoch_metrics['total_vae_loss'].append(vae_outputs["total_vae_loss"].item())
+      epoch_metrics['desc_recon_L'].append(vae_outputs["desc_recon_L"].item())
+      epoch_metrics['y_recon_L'].append(vae_outputs["y_recon_L"].item())
       epoch_metrics['kl_L'].append(vae_outputs["kl_L"].item())
       epoch_metrics['tc_L'].append(vae_outputs["tc_L"].item())
       epoch_metrics['cf_invar_L'].append(vae_outputs["cf_invar_L"].item())
@@ -181,6 +198,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
     avg_train_loss = np.mean(epoch_metrics['total_vae_loss'])
     training_log.append({'avg_train_loss': avg_train_loss})
+    training_log[-1]['avg_y_recon_loss'] = np.mean(epoch_metrics["y_recon_L"])
+    training_log[-1]['avg_desc_recon_loss'] = np.mean(epoch_metrics["desc_recon_L"])
     training_log[-1]['avg_disc_loss'] = np.mean(epoch_metrics["disc_L"])
     training_log[-1]['avg_tc_loss'] = np.mean(epoch_metrics["tc_L"])
     training_log[-1]['avg_kl_loss'] = np.mean(epoch_metrics["kl_L"])
@@ -213,7 +232,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
     # VALIDATION
     model.eval()
-    val_recon_losses = []
+    val_y_recon_losses = []
+    val_desc_recon_losses = []
     val_tc_losses = []
     val_cf_invar_losses = []
     val_disc_bal_accuracies = []
@@ -222,16 +242,19 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     with torch.no_grad():
       for i, batch in enumerate(val_loader):
 
-        x_indcorr, x_desc, x_sens, y,x_desc_2, x_sens_2, y_2=\
+        _, x_desc, x_sens, y,x_desc_2, x_sens_2, y_2=\
           [tensor.to(device) for tensor in batch]
 
         vae_outputs = model.calculate_loss(
           x_desc, x_sens, y, 
           x_desc_2, x_sens_2, y_2, 
           distill_weight, kl_weight, tc_weight, cf_invar_weight,
-          group_weights=None
+          group_weights=None,
+          desc_entropy_weights=desc_entropy_weights
         )
 
+        val_y_recon_losses.append(vae_outputs["y_recon_L"].item())
+        val_desc_recon_losses.append(vae_outputs["desc_recon_L"].item())
         val_tc_losses.append(vae_outputs["tc_L"].item())
         val_cf_invar_losses.append(vae_outputs["cf_invar_L"].item())
 
@@ -241,12 +264,14 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         )
         val_disc_bal_accuracies.append(val_disc_bal_acc)
 
-        for g, g_loss in enumerate(vae_outputs['stratified_recon_losses']):
+        for g, g_loss in enumerate(vae_outputs['stratified_y_recon_loss']):
           if (x_sens.flatten() == g).sum() > 0:
             val_group_recon_losses[g].append(g_loss.item())
 
     avg_val_tc_loss = np.mean(val_tc_losses)
     avg_val_cf_invar_loss = np.mean(val_cf_invar_losses)
+    training_log[-1]['avg_val_y_recon_loss'] = np.mean(val_y_recon_losses)
+    training_log[-1]['avg_val_desc_recon_loss'] = np.mean(val_desc_recon_losses)
     training_log[-1]['avg_val_disc_bal_acc'] = np.mean(val_disc_bal_accuracies)
 
     epoch_val_group_means = {}

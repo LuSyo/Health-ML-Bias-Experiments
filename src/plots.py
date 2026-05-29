@@ -3,6 +3,12 @@ import seaborn as sns
 import numpy as np
 from sklearn.manifold import TSNE
 
+def apply_gridline_styles(ax):
+  ax.minorticks_on()
+  ax.tick_params(axis='both', which='minor', color='#999999', grid_color='#999999')
+  ax.tick_params(axis='both', which='major', color='#222222', grid_color='#222222')
+  ax.grid(visible=True, which='both', axis='both')
+
 def train_val_recon_loss_curve(training_metrics, show=False, sens_groups=2):
   n_epochs = len(training_metrics.index)
   fig, axes = plt.subplots(
@@ -19,7 +25,7 @@ def train_val_recon_loss_curve(training_metrics, show=False, sens_groups=2):
   for g in range(sens_groups):
     avg_train_recon_loss = training_metrics[f"avg_group_{g}_loss"]
     avg_val_recon_loss = training_metrics[f"avg_val_group_{g}_loss"]
-    y_lim = max(np.min(avg_train_recon_loss) * 3, np.min(avg_val_recon_loss) * 3, y_lim)
+    y_lim = max(np.max(avg_train_recon_loss[10:]) + 0.2, np.max(avg_val_recon_loss[10:]) + 0.2, y_lim)
 
     sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=axes[g], label='Train Reconstruction Loss', errorbar=None)
     sns.lineplot(x=training_metrics.index+.5, y=avg_val_recon_loss, ax=axes[g], label='Val Reconstruction Loss', errorbar=None)
@@ -32,10 +38,7 @@ def train_val_recon_loss_curve(training_metrics, show=False, sens_groups=2):
   axes[sens_groups].set_title("Training losses")
   axes[sens_groups + 1].set_title("Validation losses")
   for ax in axes:
-    ax.minorticks_on()
-    ax.tick_params(axis='y', which='minor', color='#999999')
-    ax.tick_params(axis='y', which='major', color='#111111')
-    ax.grid(visible=True, which='both')
+    apply_gridline_styles(ax)
   plt.ylim(bottom=0, top=y_lim)
   plt.xlabel('Epoch')
 
@@ -52,6 +55,7 @@ def disc_tc_loss_curve(training_metrics, show=False):
   plt.legend()
   plt.xlabel('Epoch')
   plt.ylabel('Loss')
+  apply_gridline_styles(ax)
 
   if show: plt.show()
 
@@ -63,6 +67,7 @@ def distillation_loss_curve(training_metrics, show=False):
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('Distillation Loss')
+  apply_gridline_styles(ax)
 
   if show: plt.show()
 
@@ -74,6 +79,7 @@ def KL_loss_curve(training_metrics, show=False):
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('KL Loss')
+  apply_gridline_styles(ax)
 
   if show: plt.show()
 
@@ -82,10 +88,10 @@ def KL_loss_curve(training_metrics, show=False):
 def all_VAE_losses_curve(training_metrics, show=False):
   n_epochs = len(training_metrics.index)
   fig, axes = plt.subplots(6, 1,figsize=(0.05*n_epochs+1, 20))
-  # sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
-  #              label="Effective X_desc Recon. Loss", ax=axes[0])
-  # sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
-  #              label="Effective Y Pred. Loss", ax=axes[1])
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_recon_loss'], 
+               label="Effective X_desc Recon. Loss", ax=axes[0])
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_y_recon_loss'], 
+               label="Effective Y Pred. Loss", ax=axes[1])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_kl_loss'], 
                label="Effective KL Loss", ax=axes[2])
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_distill_loss'], 
@@ -96,10 +102,7 @@ def all_VAE_losses_curve(training_metrics, show=False):
                label="Effective Latent CF Invariance Loss", ax=axes[5])
   
   for ax in axes:
-    ax.minorticks_on()
-    ax.tick_params(axis='y', which='major', color='#666666')
-    ax.tick_params(axis='y', which='minor', color='#999999')
-    ax.grid(visible=True, which='both')
+    apply_gridline_styles(ax)
   plt.xlabel('Epoch')
   plt.ylabel('Loss')
 
@@ -113,6 +116,7 @@ def training_accuracy_curve(training_metrics, show=False):
   sns.lineplot(x=training_metrics.index, y=training_metrics['accuracy'], ax=ax)
   plt.xlabel('Epoch')
   plt.ylabel('Accuracy')
+  apply_gridline_styles(ax)
 
   if show: plt.show()
 
@@ -126,6 +130,7 @@ def disc_acc_train_val_curve(training_metrics, show=False):
   plt.legend()
   plt.xlabel('Epoch')
   plt.ylabel('Discriminator Balanced Accuracy')
+  apply_gridline_styles(ax)
 
   if show: plt.show()
 
@@ -184,20 +189,17 @@ def u_clustering_analysis(test_results, mode="test", show=False):
 
 def grad_curve(training_metrics, show=False):
   fig, ax = plt.subplots(figsize=(8, 3))
+  ymax = training_metrics[['avg_disc_input_grad', 'avg_disc_output_grad', 'avg_desc_grad']].loc[10:].max(axis=0).max()*1.2
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_input_grad'], 
                label="Discriminator first layer average gradient norm", ax=ax)
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_output_grad'], 
                label="Discriminator last layer average gradient norm", ax=ax)
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_grad'], 
                label="Desc encoder average gradient norm", ax=ax)
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_corr_grad'], 
-               label="Corr encoder average gradient norm", ax=ax)
   
-  ax.minorticks_on()
-  ax.tick_params(axis='y', which='major', color='#666666')
-  ax.tick_params(axis='y', which='minor', color='#999999')
-  ax.grid(visible=True, which='both')
-  
+  apply_gridline_styles(ax)
+
+  plt.ylim(top=ymax)
   plt.xlabel('Epoch')
   plt.ylabel('Gradient Norm')
 

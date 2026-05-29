@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, confusion_matrix, brier_score_loss, average_precision_score
 from sklearn.cross_decomposition import CCA
+from scipy.stats import entropy
 
 def calculate_performance_metrics(y_true, y_pred, y_prob):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
@@ -216,3 +217,57 @@ def get_baseline_bce(target_np, weighted=False):
         baseline_bce = 0.6931
 
     return baseline_bce, prevalence
+
+def compute_group_entropies(X, x_map, x_sens, n_bootstrap=200, seed=4):
+    np.random.seed(seed)
+    
+    X_entropy_df = pd.DataFrame(
+        X.copy(), 
+        columns=[col['name'] for col in x_map]
+    ).reset_index(drop=True)
+
+    continuous_cols = [col['name'] for col in x_map if col['type'] == "continuous"]
+    categorical_cols = [col['name'] for col in x_map if col['type'] != "continuous"]
+    
+    binned_cols = []
+    for col in continuous_cols:
+        bin_name = f"{col}_binned"
+        X_entropy_df[bin_name] = pd.qcut(X_entropy_df[col], q=5, labels=False, duplicates="drop")
+        binned_cols.append(bin_name)
+
+    all_target_cols = categorical_cols + binned_cols
+    X_entropy_df['joint_state'] = X_entropy_df[all_target_cols].astype(str).agg('-'.join, axis=1)
+
+    groups, counts = np.unique(x_sens.astype(int), sorted=True, return_counts=True)
+    group_entropies = np.empty(len(groups))
+
+    unique_global_states = X_entropy_df['joint_state'].nunique()
+    max_entropy = np.log2(unique_global_states) if unique_global_states > 1 else 1.0
+
+    for g in groups:
+        g_series = X_entropy_df[x_sens == g]['joint_state']
+        N_g = len(g_series)
+
+        if N_g == 0:
+            group_entropies[g] = 0.0
+            continue
+
+        # Raw entropy
+        probs = counts / N_g
+        raw_g_entropy = entropy(probs, base=2)
+
+        # sample bias correction (Miller-Madow using K+ to avoid the empty bins flaw)
+        counts = g_series.value_counts()
+        K_pos_g = len(counts)
+
+        miller_madow_correction = (K_pos_g - 1) / (2 * N_g)
+        corrected_g_entropy = raw_g_entropy + miller_madow_correction
+
+        group_entropies[g] = corrected_g_entropy / max_entropy
+
+        print(f"--- Group {g} ---")
+        print(f" --> Raw entropy: {raw_g_entropy:.4f}")
+        print(f" --> Corrected entropy: {corrected_g_entropy:.4f}")
+        print(f" --> Normalised entropy: {corrected_g_entropy / max_entropy:.4f}")
+
+    return group_entropies

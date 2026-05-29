@@ -9,7 +9,7 @@ from cevaehe_new.data_loader import make_bucketed_loader
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.train import train_cevaehe
 from cevaehe_new.test import test_ceveahe, generate_fair_dataset
-from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve
+from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve, grad_curve
 
 def main():
   args = parse_args()
@@ -94,6 +94,9 @@ def main():
 
     train_u_clustering_analysis_fig = u_clustering_analysis(train_results, mode="training")
     train_u_clustering_analysis_fig.savefig(f'{results_path}/train_u_clustering_analysis.png', bbox_inches='tight')
+
+    grad_curves_fig = grad_curve(training_metrics)
+    grad_curves_fig.savefig(f'{results_path}/grad_curves.png', bbox_inches='tight')
 
     if train_results is not None:      
       mu_desc_0 = np.stack(train_results.loc[train_results['x_sens'] == 0, 'mu_desc'].tolist())

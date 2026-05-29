@@ -393,9 +393,20 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       seed = args.seed
     )
 
+    # Probe trained on (X_indcorr) = ablation
+    # Global AUPRC 
+    abla_results = run_downstream_probe(
+      features = all_x_indcorr_np,
+      target = all_y_true_np,
+      sens = all_x_sens_np,
+      dict_prefix="abla_",
+      seed = args.seed
+    )
+
   else:
     u_results = {}
     x_results = {}
+    abla_results = {}
 
   results = []
   for feature in features:
@@ -408,6 +419,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "y_prevalence": y_prevalence,
       "s_prevalence": s_prevalence
-    } | u_results | x_results)
+    } | u_results | x_results | abla_results)
 
   return results
+
