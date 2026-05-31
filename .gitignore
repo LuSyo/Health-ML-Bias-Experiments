@@ -1,14 +1,18 @@
 # data
 data/
+z_data/
 
 # models
 models/
+z_models/
 
 # results
 results/
+z_results/
 
 # logs
 logs/
+z_logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

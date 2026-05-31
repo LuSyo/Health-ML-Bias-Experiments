@@ -1,8 +1,8 @@
 import math
 import torch
 from torch import nn
-import numpy as np
 import copy
+from torch.nn.utils.parametrizations import spectral_norm
 
 class GradientReversal(torch.autograd.Function):
   @staticmethod
@@ -102,11 +102,11 @@ class CEVAEHE(nn.Module):
 
     # Discriminator
     self.discriminator = nn.Sequential(
-      nn.Linear(self.ud_dim, self.h_dim),
+      spectral_norm(nn.Linear(self.ud_dim, self.h_dim)),
       nn.LeakyReLU(0.2, True),
-      nn.Linear(self.h_dim, self.h_dim),
+      spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
       nn.LeakyReLU(0.2, True),
-      nn.Linear(self.h_dim, self.h_dim),
+      spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
       nn.LeakyReLU(0.2, True),
       nn.Linear(self.h_dim, 1)
     )
@@ -367,12 +367,12 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
 
-  def tc_loss(self, u_desc, x_sens, pos_weight=1):
+  def tc_loss(self, u_desc, x_sens, pos_weight=1, alpha=4.0):
     """
     Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
     """  
     x_sens = x_sens.squeeze()
-    u_desc_reversed = grad_reverse(u_desc, alpha=1.0)
+    u_desc_reversed = grad_reverse(u_desc, alpha=alpha)
     
     disc_logits = self.discriminate(u_desc_reversed)
 
@@ -392,6 +392,7 @@ class CEVAEHE(nn.Module):
     disc_logits = self.discriminate(u_desc_det)
 
     target_sens = x_sens.float().view_as(disc_logits)
+    smoothed_targets = target_sens * 0.9 + 0.05
 
     num_pos = (target_sens == 1.0).sum()
     num_neg = (target_sens == 0.0).sum()
@@ -399,7 +400,7 @@ class CEVAEHE(nn.Module):
     # Weighted Loss Function
     pos_weight_tensor = torch.tensor([pos_weight], device=self.device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
-    disc_L = criterion(disc_logits, target_sens)
+    disc_L = criterion(disc_logits, smoothed_targets)
 
     # Tracking Balanced Accuracy
     preds = (disc_logits > 0.0).float()
@@ -413,7 +414,7 @@ class CEVAEHE(nn.Module):
     return disc_L, disc_balanced_acc
 
 
-  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, disc_pos_weight=1, group_weights=None, desc_entropy_weights=None):
+  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, disc_pos_weight=1, group_weights=None, desc_entropy_weights=None, grad_rev_alpha=4.0):
     '''
       Calculates all components of the VAE loss in training
 
@@ -468,7 +469,7 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_desc, logvar_desc)
 
     # TC LOSS
-    tc_L = self.tc_loss(u_desc, x_sens, disc_pos_weight)
+    tc_L = self.tc_loss(u_desc, x_sens, disc_pos_weight, grad_rev_alpha)
 
     # LATENT COUNTERFACTUAL INVARIANCE LOSS
     x_sens_flipped = 1 - x_sens

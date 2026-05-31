@@ -59,8 +59,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
   logger.info(f"Training Sensitive Attribute (S) Prevalence: {s_prevalence:.4f}")
   # logger.info(f"Expected VAE TC Loss floor: {tc_chance_floor:.4f}")
-  # logger.info(f"Expected Discriminator Loss ceiling/floor: {disc_chance_floor:.4f}")
-  # logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
+  logger.info(f"Expected Discriminator/TC Loss ceiling/floor: {disc_chance_floor:.4f}")
+  logger.info(f"Expected Discriminator Balanced Accuracy target: 0.5000")
 
 
   # Xdesc group entropy
@@ -114,6 +114,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
     tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
     cf_invar_weight = get_anneal_weight(epoch, args.cf_invar_warm_up, args.cf_invar_b)
+    grad_rev_alpha = get_anneal_weight(epoch, args.tc_warm_up, 4.0)
 
     # Tracking group recon loss across batches
     epoch_strat_recon_losses = torch.zeros(model.sens_groups, device=device)
@@ -161,7 +162,8 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         distill_weight, kl_weight, tc_weight, cf_invar_weight,
         disc_pos_weight=disc_pos_weight,
         group_weights=group_weights,
-        desc_entropy_weights=desc_entropy_weights
+        desc_entropy_weights=desc_entropy_weights,
+        grad_rev_alpha=grad_rev_alpha
       )
 
       vae_outputs["total_vae_loss"].backward()

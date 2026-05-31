@@ -2,10 +2,10 @@ import torch
 import os
 
 class Config:
-  DATA_DIR = './data/'
-  MODELS_DIR = './models/'
-  LOG_DIR = './logs/'
-  RESULTS_DIR = './results/'
+  DATA_DIR = './z_data/'
+  MODELS_DIR = './z_models/'
+  LOG_DIR = './z_logs/'
+  RESULTS_DIR = './z_results/'
 
   DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   SEED = 4
