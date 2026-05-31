@@ -367,7 +367,7 @@ class CEVAEHE(nn.Module):
 
     return kl_div / mu1.size(0)
 
-  def tc_loss(self, u_desc, x_sens):
+  def tc_loss(self, u_desc, x_sens, pos_weight=1):
     """
     Calculates the Total Correlation loss enforcing statistical independence between Udesc and S
     """  
@@ -378,15 +378,11 @@ class CEVAEHE(nn.Module):
 
     target_sens = x_sens.float().view_as(disc_logits)
 
-    num_pos = (target_sens == 1.0).sum()
-    num_neg = (target_sens == 0.0).sum()
-    pos_weight = num_neg / (num_pos + 1e-5)
-
-    tc_L = nn.BCEWithLogitsLoss(pos_weight=pos_weight)(disc_logits, target_sens)
-    # tc_L = nn.BCEWithLogitsLoss()(disc_logits, target_sens)
+    pos_weight_tensor = torch.tensor([pos_weight], device=self.device)
+    tc_L = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)(disc_logits, target_sens)
     return tc_L
 
-  def disc_loss(self, u_desc, x_sens):
+  def disc_loss(self, u_desc, x_sens, pos_weight=1):
     """
     Calculates the discrimator's loss, training the discriminator to distinguish between real and permuted (Udesc, S) pairs
     """
@@ -397,13 +393,12 @@ class CEVAEHE(nn.Module):
 
     target_sens = x_sens.float().view_as(disc_logits)
 
-    # pos_weight based on X_sens imbalance
     num_pos = (target_sens == 1.0).sum()
     num_neg = (target_sens == 0.0).sum()
-    pos_weight = (num_neg / (num_pos + 1e-5))
 
     # Weighted Loss Function
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    pos_weight_tensor = torch.tensor([pos_weight], device=self.device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
     disc_L = criterion(disc_logits, target_sens)
 
     # Tracking Balanced Accuracy
@@ -418,7 +413,7 @@ class CEVAEHE(nn.Module):
     return disc_L, disc_balanced_acc
 
 
-  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, group_weights=None, desc_entropy_weights=None):
+  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, disc_pos_weight=1, group_weights=None, desc_entropy_weights=None):
     '''
       Calculates all components of the VAE loss in training
 
@@ -473,7 +468,7 @@ class CEVAEHE(nn.Module):
     kl_L = self.kl_loss(mu_desc, logvar_desc)
 
     # TC LOSS
-    tc_L = self.tc_loss(u_desc, x_sens)
+    tc_L = self.tc_loss(u_desc, x_sens, disc_pos_weight)
 
     # LATENT COUNTERFACTUAL INVARIANCE LOSS
     x_sens_flipped = 1 - x_sens

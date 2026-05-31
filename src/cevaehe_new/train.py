@@ -73,8 +73,12 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
     seed=args.seed
   )
   desc_entropy_weights = (1 / group_entropies) / np.sum(1 / group_entropies)
-  print(desc_entropy_weights)
   desc_entropy_weights = torch.tensor(desc_entropy_weights, dtype=torch.float32, device=device)
+
+  # pos_weight for the Discriminator loss
+  global_num_pos = (train_s_np == 1.0).sum()
+  global_num_neg = (train_s_np == 0.0).sum()
+  disc_pos_weight = float(global_num_neg / (global_num_pos + 1e-5))
 
   for epoch in range(args.n_epochs):
     logger.info(f'Epoch {epoch}')
@@ -128,7 +132,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
           mu_desc_d, logvar_desc_d = model.encode(x_desc, x_sens, y)
           u_desc_d = model.reparameterize(mu_desc_d, logvar_desc_d)
         
-        disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens)
+        disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens, pos_weight=disc_pos_weight)
         disc_L.backward()
 
         # Track discriminator gradients
@@ -142,7 +146,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         with torch.no_grad():
           mu_desc_d, logvar_desc_d = model.encode(x_desc, x_sens, y)
           u_desc_d = model.reparameterize(mu_desc_d, logvar_desc_d)
-          disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens)
+          disc_L, disc_bal_acc = model.disc_loss(u_desc_d, x_sens, pos_weight=disc_pos_weight)
 
       # MAIN VAE UPDATE
       main_optimiser.zero_grad()
@@ -155,6 +159,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
         distill_weight, kl_weight, tc_weight, cf_invar_weight,
+        disc_pos_weight=disc_pos_weight,
         group_weights=group_weights,
         desc_entropy_weights=desc_entropy_weights
       )

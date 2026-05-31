@@ -188,18 +188,22 @@ def u_clustering_analysis(test_results, mode="test", show=False):
   return fig
 
 def grad_curve(training_metrics, show=False):
-  fig, ax = plt.subplots(figsize=(8, 3))
-  ymax = training_metrics[['avg_disc_input_grad', 'avg_disc_output_grad', 'avg_desc_grad']].loc[10:].max(axis=0).max()*1.2
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_input_grad'], 
-               label="Discriminator first layer average gradient norm", ax=ax)
-  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_output_grad'], 
-               label="Discriminator last layer average gradient norm", ax=ax)
+  fig, axes = plt.subplots(2, 1, figsize=(8, 8))
+  ymax_0 = training_metrics['avg_desc_grad'].loc[10:].max(axis=0).max()*1.2
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_desc_grad'], 
-               label="Desc encoder average gradient norm", ax=ax)
-  
-  apply_gridline_styles(ax)
+               label="Desc encoder average gradient norm", ax=axes[0])
+  axes[0].set_ylim(top=ymax_0, bottom=0)
+               
+  ymax_1 = training_metrics[['avg_disc_input_grad', 'avg_disc_output_grad']].loc[10:].max(axis=0).max()*1.2
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_output_grad'], 
+               label="Discriminator last layer average gradient norm", ax=axes[1])
+  sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_input_grad'], 
+               label="Discriminator first layer average gradient norm", ax=axes[1])
+  axes[1].set_ylim(top=ymax_1, bottom=0)
 
-  plt.ylim(top=ymax)
+  for ax in axes:
+    apply_gridline_styles(ax)
+
   plt.xlabel('Epoch')
   plt.ylabel('Gradient Norm')
 
