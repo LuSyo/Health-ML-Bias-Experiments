@@ -35,6 +35,7 @@ class Config:
   TC_BETA = 5
   CF_INVAR_BETA = 1
   GROUP_ETA = 2
+  GRADNORM_GAMMA = 1.5
 
   # Classifier training params
   M_SAMPLES = 3

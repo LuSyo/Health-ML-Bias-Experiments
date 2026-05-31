@@ -27,10 +27,18 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   model.to(device)
   model = model.train()
 
+  # NETWORK OPTIMISERS
   discrim_params = [param for name, param in model.named_parameters() if 'discriminator' in name]
   main_params = [param for name, param in model.named_parameters() if 'discriminator' not in name]
   discrim_optimiser = optim.Adam(discrim_params, lr=args.disc_lr, betas=(0.9, 0.999))
   main_optimiser = optim.Adam(main_params, lr=args.vae_lr, betas=(0.9, 0.999))
+
+  # GRADNORM OPTIMISERS
+  n_tasks = 3
+  gradnorm_weights = torch.ones(n_tasks, dtype=torch.float32, device=device, requires_grad=True)
+  gradnorm_gamma = args.gradnorm_gamma
+  grad_optimiser = optim.Adam([gradnorm_weights], lr=args.vae_lr, betas=(0.9, 0.999))
+  initial_losses = None
 
   model_path = f'{args.root_dir}{Config.MODELS_DIR}'
   os.makedirs(model_path, exist_ok=True)
@@ -112,8 +120,6 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
     distill_weight = get_anneal_weight(epoch, args.distill_warm_up, 1.0)
     kl_weight = get_anneal_weight(epoch, args.kl_warm_up, 1.0)
-    tc_weight = get_anneal_weight(epoch, args.tc_warm_up, args.tc_b)
-    cf_invar_weight = get_anneal_weight(epoch, args.cf_invar_warm_up, args.cf_invar_b)
     grad_rev_alpha = get_anneal_weight(epoch, args.tc_warm_up, 4.0)
 
     # Tracking group recon loss across batches
@@ -151,6 +157,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
 
       # MAIN VAE UPDATE
       main_optimiser.zero_grad()
+      grad_optimiser.zero_grad()
 
       # Update group weights
       with torch.no_grad():
@@ -159,47 +166,56 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       vae_outputs = model.calculate_loss(
         x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
-        distill_weight=1, kl_weight=1, tc_weight=1, cf_invar_weight=1,
         disc_pos_weight=disc_pos_weight,
         group_weights=group_weights,
         desc_entropy_weights=desc_entropy_weights,
         grad_rev_alpha=grad_rev_alpha
       )
 
-      # --- GRADNORM ----
-      # Utility loss = reconstruction
-      primary_utility_loss = vae_outputs["primary_utility_loss"]
-      regularization_loss = (kl_weight * vae_outputs["kl_L"]) + (distill_weight * vae_outputs["distill_L"])
+      # ---- GRADNORM ----
+      # Get the current losses
+      L_tasks = torch.stack([
+        vae_outputs["recon_L"],
+        disc_chance_floor - vae_outputs["tc_L"], # Adversarial task
+        vae_outputs["cf_invar_L"]
+      ])
 
-      desc_final_layer = model.encoder_desc[-2]
+      # Initialise the base losses at epoch 0 batch 0
+      if initial_losses is None:
+        initial_losses = L_tasks.detach().clone()
+        initial_losses = torch.where(initial_losses == 0, torch.ones_like(initial_losses), initial_losses)
+      
+      # Chosen shared layer = last Linear layer of the encoder
+      shared_layer_W = model.encoder_desc[-2].weight
 
-      # Gradient norm for the primary utility loss
-      grad_utility = torch.autograd.grad(primary_utility_loss, desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
-      utility_squares = torch.stack([g.pow(2).sum() for g in grad_utility if g is not None])
-      norm_utility = torch.sqrt(torch.sum(utility_squares) + 1e-8)
+      # Compute the L2 norm of gradients per task w.r.t shared layer
+      norms=[]
+      for i in range(n_tasks):
+        grad_i = torch.autograd.grad(L_tasks[i], shared_layer_W, retain_graph=True)[0]
+        norms.append(gradnorm_weights[i] * torch.norm(grad_i, p=2))
 
-      # Gradient norm for Total Correlation Constraint
-      grad_tc = torch.autograd.grad(vae_outputs["tc_L"], desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
-      tc_squares = torch.stack([g.pow(2).sum() for g in grad_tc if g is not None])
-      norm_tc = torch.sqrt(torch.sum(tc_squares) + 1e-8)
+      norms = torch.stack(norms)
 
-      # Gradient norm for Counterfactual Invariance Constraint
-      grad_cf = torch.autograd.grad(vae_outputs["cf_invar_L"], desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
-      cf_squares = torch.stack([g.pow(2).sum() for g in grad_cf if g is not None])
-      norm_cf = torch.sqrt(torch.sum(cf_squares) + 1e-8)
-
-      # Calculate adaptive balances based on gradient magnitudes
+      # Compute FROZEN training rate ratios and target norms
       with torch.no_grad():
-        adaptive_tc_weight = (norm_utility / (norm_tc + 1e-5)) * tc_weight
-        adaptive_cf_weight = (norm_utility / (norm_cf + 1e-5)) * cf_invar_weight
-        print(f"TC weight: {adaptive_tc_weight:.3f}; CF invar weight: {adaptive_cf_weight:.3f}")
+        mean_norm = torch.mean(norms) # average gradient norm across tasks
+        loss_ratios = L_tasks / initial_losses 
+        mean_loss_ratio = torch.mean(loss_ratios) # average loss ratio across tasks
+        inverse_training_rates = loss_ratios / (mean_loss_ratio + 1e-8) 
+        target_norms = mean_norm * (inverse_training_rates ** gradnorm_gamma)
+      
+      # Calculate the GradNorm loss, as the L1 loss between actual and target gradient norms
+      grad_loss = torch.nn.functional.l1_loss(norms, target_norms)
+      grad_loss.backward(retain_graph=True)
 
-      # Assemble balanced total loss
+      # Use the adapted weights to compute the VAE total loss
+      # make sure it doesn't update the gradnorm weights
       total_vae_loss = (
-        primary_utility_loss 
-        + regularization_loss 
-        + (adaptive_tc_weight * vae_outputs["tc_L"]) 
-        + (adaptive_cf_weight * vae_outputs["cf_invar_L"])
+        gradnorm_weights[0].detach() * vae_outputs["recon_L"] +
+        gradnorm_weights[1].detach() * vae_outputs["tc_L"] +
+        gradnorm_weights[2].detach() * vae_outputs["cf_invar_L"] +
+        kl_weight * vae_outputs["kl_L"] +
+        distill_weight * vae_outputs["distill_L"]
       )
 
       total_vae_loss.backward()
@@ -217,6 +233,12 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       epoch_grad_norms['enc_desc_grad_norm'].append(enc_desc_norm)
 
       main_optimiser.step()
+      grad_optimiser.step()
+
+      # Renormalise the GradNorm weights
+      with torch.no_grad():
+        normalize_coeff = float(n_tasks) / torch.sum(gradnorm_weights)
+        gradnorm_weights.data.mul_(normalize_coeff)
 
       # OUTPUTS
       all_y_true.append(y)
@@ -227,7 +249,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       all_logvar_desc.append(vae_outputs["logvar_desc"].detach())
 
       # LOSSES
-      epoch_metrics['total_vae_loss'].append(vae_outputs["total_vae_loss"].item())
+      epoch_metrics['total_vae_loss'].append(total_vae_loss.item())
       epoch_metrics['desc_recon_L'].append(vae_outputs["desc_recon_L"].item())
       epoch_metrics['y_recon_L'].append(vae_outputs["y_recon_L"].item())
       epoch_metrics['kl_L'].append(vae_outputs["kl_L"].item())
@@ -291,9 +313,9 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         vae_outputs = model.calculate_loss(
           x_desc, x_sens, y, 
           x_desc_2, x_sens_2, y_2, 
-          distill_weight, kl_weight, tc_weight, cf_invar_weight,
-          group_weights=None,
-          desc_entropy_weights=desc_entropy_weights
+          disc_pos_weight=disc_pos_weight,
+          desc_entropy_weights=desc_entropy_weights,
+          grad_rev_alpha=grad_rev_alpha
         )
 
         val_y_recon_losses.append(vae_outputs["y_recon_L"].item())

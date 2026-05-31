@@ -57,6 +57,7 @@ def parse_args():
   parser.add_argument('--cf_invar_b', type=float, default=Config.CF_INVAR_BETA)
   parser.add_argument('--tc_b', type=float, default=Config.TC_BETA)
   parser.add_argument('--group_eta', type=float, default=Config.GROUP_ETA)
+  parser.add_argument('--gradnorm_gamma', type=float, default=Config.GRADNORM_GAMMA)
 
   # Latent space sampling
   parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)

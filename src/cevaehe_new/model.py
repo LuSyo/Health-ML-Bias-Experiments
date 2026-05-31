@@ -414,7 +414,7 @@ class CEVAEHE(nn.Module):
     return disc_L, disc_balanced_acc
 
 
-  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, distill_weight, kl_weight, tc_weight, cf_invar_weight, disc_pos_weight=1, group_weights=None, desc_entropy_weights=None, grad_rev_alpha=4.0):
+  def calculate_loss(self, x_desc, x_sens, y, x_desc_2, x_sens_2, y_2, disc_pos_weight=1, group_weights=None, desc_entropy_weights=None, grad_rev_alpha=4.0):
     '''
       Calculates all components of the VAE loss in training
 
@@ -486,18 +486,8 @@ class CEVAEHE(nn.Module):
       + self.kl_div(mu_desc, logvar_desc, mu_desc_cf, logvar_desc_cf)
     )
 
-    # TOTAL VAE LOSS
-    total_vae_loss = (
-      recon_L 
-      + distill_weight * distill_L
-      + kl_weight * kl_L
-      + tc_weight * tc_L
-      + cf_invar_weight * cf_invar_L
-    )
-
     return {
-      "primary_utility_loss": recon_L,
-      "total_vae_loss": total_vae_loss,
+      "recon_L": recon_L,
       "stratified_y_recon_loss": stratified_y_recon_loss,
       "desc_recon_L": desc_recon_L,
       "y_recon_L": y_recon_L,
