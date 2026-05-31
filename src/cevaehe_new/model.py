@@ -496,14 +496,15 @@ class CEVAEHE(nn.Module):
     )
 
     return {
+      "primary_utility_loss": recon_L,
       "total_vae_loss": total_vae_loss,
       "stratified_y_recon_loss": stratified_y_recon_loss,
       "desc_recon_L": desc_recon_L,
       "y_recon_L": y_recon_L,
-      "kl_L": kl_weight * kl_L,
-      "tc_L": tc_weight * tc_L,
-      "cf_invar_L": cf_invar_weight * cf_invar_L,
-      "distill_L": distill_weight * distill_L,
+      "kl_L": kl_L,
+      "tc_L": tc_L,
+      "cf_invar_L": cf_invar_L,
+      "distill_L": distill_L,
       "u_desc": u_desc,
       "mu_desc": mu_desc.detach(),
       "logvar_desc": logvar_desc.detach(),

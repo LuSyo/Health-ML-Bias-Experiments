@@ -159,14 +159,50 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
       vae_outputs = model.calculate_loss(
         x_desc, x_sens, y, 
         x_desc_2, x_sens_2, y_2, 
-        distill_weight, kl_weight, tc_weight, cf_invar_weight,
+        distill_weight=1, kl_weight=1, tc_weight=1, cf_invar_weight=1,
         disc_pos_weight=disc_pos_weight,
         group_weights=group_weights,
         desc_entropy_weights=desc_entropy_weights,
         grad_rev_alpha=grad_rev_alpha
       )
 
-      vae_outputs["total_vae_loss"].backward()
+      # --- GRADNORM ----
+      # Utility loss = reconstruction
+      primary_utility_loss = vae_outputs["primary_utility_loss"]
+      regularization_loss = (kl_weight * vae_outputs["kl_L"]) + (distill_weight * vae_outputs["distill_L"])
+
+      desc_final_layer = model.encoder_desc[-2]
+
+      # Gradient norm for the primary utility loss
+      grad_utility = torch.autograd.grad(primary_utility_loss, desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
+      utility_squares = torch.stack([g.pow(2).sum() for g in grad_utility if g is not None])
+      norm_utility = torch.sqrt(torch.sum(utility_squares) + 1e-8)
+
+      # Gradient norm for Total Correlation Constraint
+      grad_tc = torch.autograd.grad(vae_outputs["tc_L"], desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
+      tc_squares = torch.stack([g.pow(2).sum() for g in grad_tc if g is not None])
+      norm_tc = torch.sqrt(torch.sum(tc_squares) + 1e-8)
+
+      # Gradient norm for Counterfactual Invariance Constraint
+      grad_cf = torch.autograd.grad(vae_outputs["cf_invar_L"], desc_final_layer.parameters(), retain_graph=True, allow_unused=True)
+      cf_squares = torch.stack([g.pow(2).sum() for g in grad_cf if g is not None])
+      norm_cf = torch.sqrt(torch.sum(cf_squares) + 1e-8)
+
+      # Calculate adaptive balances based on gradient magnitudes
+      with torch.no_grad():
+        adaptive_tc_weight = (norm_utility / (norm_tc + 1e-5)) * tc_weight
+        adaptive_cf_weight = (norm_utility / (norm_cf + 1e-5)) * cf_invar_weight
+        print(f"TC weight: {adaptive_tc_weight:.3f}; CF invar weight: {adaptive_cf_weight:.3f}")
+
+      # Assemble balanced total loss
+      total_vae_loss = (
+        primary_utility_loss 
+        + regularization_loss 
+        + (adaptive_tc_weight * vae_outputs["tc_L"]) 
+        + (adaptive_cf_weight * vae_outputs["cf_invar_L"])
+      )
+
+      total_vae_loss.backward()
 
       # Update group loss tracking
       with torch.no_grad():
