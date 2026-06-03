@@ -148,6 +148,145 @@ def apply_treatment_bias(df, biomarker, s_target=0, bias_prob=0.7, b_mean_shift=
 
   return df_obs
 
+def apply_measurement_calibration_bias(df, biomarker, s_target=0, bias_prob=1.0, added_noise_std=15.0, non_negative=False, seed=4):
+  """
+  Applies measurement calibration bias by injecting zero-mean Gaussian noise with 
+  expanded variance strictly into individuals within the targeted demographic.
+  
+  inputs:
+    - df: raw clinical dataset
+    - biomarker: string name of the column to corrupt
+    - s_target: demographic subgroup experiencing the calibration failure (e.g., S=0)
+    - bias_prob: fraction of the target demographic affected by the calibration bias
+    - added_noise_std: standard deviation of the injected measurement noise
+    - non_negative: if True, clips values below 0 to preserve physiological realism (e.g., lab values)
+    - seed: random seed for reproducibility
+    
+  output:
+    - Copy of the dataframe with a new '{biomarker}_obs' column
+  """
+  np.random.seed(seed)
+  df_obs = df.copy()
+  
+  # Initialize observed values with clean ground truth
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  
+  # Isolate target population indices
+  target_indices = df_obs[df_obs['S'] == s_target].index
+  biased_indices = np.random.choice(
+      target_indices, 
+      size=int(len(target_indices) * bias_prob), 
+      replace=False
+  )
+  
+  # Generate zero-mean heteroscedastic noise
+  noise = np.random.normal(loc=0.0, scale=added_noise_std, size=len(biased_indices))
+  df_obs.loc[biased_indices, f'{biomarker}_obs'] += noise
+  
+  # Enforce non-negativity constraints if mandated by the distribution family
+  if non_negative:
+      df_obs[f'{biomarker}_obs'] = df_obs[f'{biomarker}_obs'].clip(lower=1e-3)
+      
+  return df_obs
+
+def apply_acuity_dependent_censoring(df, biomarker, s_target=0, bias_prob=0.8, threshold_quantile=0.5, attenuation_factor=0.2, seed=4):
+  """
+  Applies acuity-dependent censoring to simulate systemic healthcare access barriers.
+  Marginalized patients (S = s_target) with low-acuity (healthy/mild) values are 
+  under-sampled or have their values suppressed due to delayed clinical presentation.
+  
+  inputs:
+    - df: raw clinical dataset
+    - biomarker: string name of the continuous column to corrupt
+    - s_target: demographic subgroup experiencing access barriers (S=0)
+    - bias_prob: probability that a sub-acute individual is affected by the barrier
+    - threshold_quantile: quantile below which an individual is considered "sub-acute"
+    - attenuation_factor: multiplier applied to suppressed values (simulates downplayed severity)
+    - seed: random seed for reproducibility
+    
+  output:
+    - Copy of the dataframe with a new '{biomarker}_obs' column
+  """
+  np.random.seed(seed)
+  df_obs = df.copy()
+  
+  # Initialize observed values with ground truth
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  
+  # Establish the empirical clinical acuity threshold from the global population
+  threshold_val = df_obs[biomarker].quantile(threshold_quantile)
+  
+  # Identify target individuals who are medically stable/sub-acute (below threshold)
+  sub_acute_target_mask = (df_obs['S'] == s_target) & (df_obs[biomarker] < threshold_val)
+  subacute_indices = df_obs[sub_acute_target_mask].index
+  
+  # Determine which sub-acute individuals are censored/suppressed
+  censored_indices = np.random.choice(
+    subacute_indices, 
+    size=int(len(subacute_indices) * bias_prob), 
+    replace=False
+  )
+  
+  # Suppress the values, driving them artificially lower to simulate under-coding/delayed capture
+  df_obs.loc[censored_indices, f'{biomarker}_obs'] *= attenuation_factor
+  
+  return df_obs
+
+def apply_constant_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, shift_val=-10.0, seed=4):
+  """
+  Applies a fixed, constant value shift to a biomarker for a specific demographic.
+  Simulates a baseline calibration offset in diagnostic tools across groups.
+  
+  X_obs = X + shift_val  (For individuals where S == s_target)
+  """
+  np.random.seed(seed)
+  df_obs = df.copy()
+  
+  # Initialize observed with clean ground truth
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  
+  # Isolate target indices
+  target_indices = df_obs[df_obs['S'] == s_target].index
+  biased_indices = np.random.choice(
+      target_indices, 
+      size=int(len(target_indices) * bias_prob), 
+      replace=False
+  )
+  
+  # Apply deterministic constant shift
+  df_obs.loc[biased_indices, f'{biomarker}_obs'] += shift_val
+  
+  return df_obs
+
+
+def apply_multiplicative_scaling_bias(df, biomarker, s_target=0, bias_prob=1.0, scale_factor=0.85, seed=4):
+  """
+  Scales the biomarker values by a fixed percentage for a specific demographic.
+  Simulates a proportional under-reporting or under-measurement.
+  
+  X_obs = X * scale_factor  (For individuals where S == s_target)
+  """
+  np.random.seed(seed)
+  df_obs = df.copy()
+  
+  # Initialize observed with clean ground truth
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  
+  # Isolate target indices
+  target_indices = df_obs[df_obs['S'] == s_target].index
+  biased_indices = np.random.choice(
+      target_indices, 
+      size=int(len(target_indices) * bias_prob), 
+      replace=False
+  )
+  
+  # Apply multiplicative scaling
+  df_obs.loc[biased_indices, f'{biomarker}_obs'] *= scale_factor
+  
+  return df_obs
+
+# ==== ARCHIVE ====
+
 def apply_additive_unfair_bias(df, s_target=0, bias_prob=0.5, s1_max_shift=2, b1_mean_shift=12.0, b1_std_shift=3.0, proc_risk_penalty=0.15, seed=4):
   """
   Applies additive bias to clinical features
@@ -208,7 +347,6 @@ def apply_additive_unfair_bias(df, s_target=0, bias_prob=0.5, s1_max_shift=2, b1
   return df_obs
 
 
-# ==== ARCHIVE ====
 
 def apply_systemic_biases(df, reporting_threshold=2, medication_effect=15.0, referral_bias=0.3, missingness_rate=0.4):
   """
