@@ -39,7 +39,7 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
   main_optimiser = optim.Adam(main_params, lr=args.vae_lr, betas=(0.9, 0.999))
 
   # GRADNORM OPTIMISERS
-  n_tasks = 3
+  n_tasks = 4
   gradnorm_weights = torch.ones(n_tasks, dtype=torch.float32, device=device, requires_grad=True)
   gradnorm_gamma = args.gradnorm_gamma
   grad_optimiser = optim.Adam([gradnorm_weights], lr=args.vae_lr, betas=(0.9, 0.999))
@@ -187,48 +187,60 @@ def train_cevaehe(model, train_loader, val_loader, logger, args):
         grad_rev_alpha=grad_rev_alpha
       )
 
-      # ---- GRADNORM ----
-      # Get the current losses
-      L_tasks = torch.stack([
-        vae_outputs["recon_L"],
-        disc_chance_floor - vae_outputs["tc_L"], # Adversarial task
-        vae_outputs["cf_invar_L"]
-      ])
+      # # ---- GRADNORM ----
+      # # Get the current losses
+      # L_tasks = torch.stack([
+      #   vae_outputs["recon_L"],
+      #   (disc_chance_floor - vae_outputs["tc_L"]), # Adversarial task
+      #   vae_outputs["cf_invar_L"],
+      #   vae_outputs["kl_L"]
+      # ])
 
-      # Initialise the base losses at epoch 0 batch 0
-      if initial_losses is None:
-        initial_losses = L_tasks.detach().clone()
-        initial_losses = torch.where(initial_losses == 0, torch.ones_like(initial_losses), initial_losses)
+      # # Initialise the base losses at epoch 0 batch 0
+      # if initial_losses is None:
+      #   initial_losses = L_tasks.detach().clone()
+      #   initial_losses = torch.where(initial_losses == 0, torch.ones_like(initial_losses), initial_losses)
+      # elif epoch < 15:
+      #   with torch.no_grad():
+      #     initial_losses = 0.95 * initial_losses + 0.05 * L_tasks.detach()
       
-      # Chosen shared layer = last Linear layer of the encoder
-      shared_layer_W = model.encoder_desc[-2].weight
+      # # Chosen shared layer = last Linear layer of the encoder
+      # shared_layer_W = model.encoder_desc[-2].weight
 
-      # Compute the L2 norm of gradients per task w.r.t shared layer
-      norms=[]
-      for i in range(n_tasks):
-        grad_i = torch.autograd.grad(L_tasks[i], shared_layer_W, retain_graph=True)[0]
-        norms.append(gradnorm_weights[i] * torch.norm(grad_i, p=2))
+      # # Compute the L2 norm of gradients per task w.r.t shared layer
+      # norms=[]
+      # for i in range(n_tasks):
+      #   grad_i = torch.autograd.grad(L_tasks[i], shared_layer_W, retain_graph=True)[0]
+      #   norms.append(gradnorm_weights[i] * torch.norm(grad_i, p=2))
 
-      norms = torch.stack(norms)
+      # norms = torch.stack(norms)
 
-      # Compute FROZEN training rate ratios and target norms
-      with torch.no_grad():
-        mean_norm = torch.mean(norms) # average gradient norm across tasks
-        loss_ratios = L_tasks / initial_losses 
-        mean_loss_ratio = torch.mean(loss_ratios) # average loss ratio across tasks
-        inverse_training_rates = loss_ratios / (mean_loss_ratio + 1e-8) 
-        target_norms = mean_norm * (inverse_training_rates ** gradnorm_gamma)
+      # # Compute FROZEN training rate ratios and target norms
+      # with torch.no_grad():
+      #   mean_norm = torch.mean(norms) # average gradient norm across tasks
+      #   loss_ratios = L_tasks / initial_losses 
+      #   mean_loss_ratio = torch.mean(loss_ratios) # average loss ratio across tasks
+      #   inverse_training_rates = loss_ratios / (mean_loss_ratio + 1e-8) 
+      #   target_norms = mean_norm * (inverse_training_rates ** gradnorm_gamma)
       
-      # Calculate the GradNorm loss, as the L1 loss between actual and target gradient norms
-      grad_loss = torch.nn.functional.l1_loss(norms, target_norms)
-      grad_loss.backward(retain_graph=True)
+      # # Calculate the GradNorm loss, as the L1 loss between actual and target gradient norms
+      # grad_loss = torch.nn.functional.l1_loss(norms, target_norms)
+      # grad_loss.backward(retain_graph=True)
 
       # Use the adapted weights to compute the VAE total loss
       # make sure it doesn't update the gradnorm weights
+      # total_vae_loss = (
+      #   gradnorm_weights[0].detach() * vae_outputs["recon_L"] +
+      #   gradnorm_weights[1].detach() * tc_weight * vae_outputs["tc_L"] +
+      #   gradnorm_weights[2].detach() * cf_invar_weight * vae_outputs["cf_invar_L"] +
+      #   gradnorm_weights[3].detach() * kl_weight * vae_outputs["kl_L"] +
+      #   distill_weight * vae_outputs["distill_L"]
+      # )
+
       total_vae_loss = (
-        gradnorm_weights[0].detach() * vae_outputs["recon_L"] +
-        gradnorm_weights[1].detach() * vae_outputs["tc_L"] +
-        gradnorm_weights[2].detach() * vae_outputs["cf_invar_L"] +
+        vae_outputs["recon_L"] +
+        tc_weight * vae_outputs["tc_L"] +
+        cf_invar_weight * vae_outputs["cf_invar_L"] +
         kl_weight * vae_outputs["kl_L"] +
         distill_weight * vae_outputs["distill_L"]
       )
