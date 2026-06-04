@@ -261,6 +261,35 @@ def apply_constant_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, shift
   
   return df_obs
 
+def apply_normal_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, mean_shift=-12.0, std_shift=3.0, non_negative=True, seed=4):
+  """
+  Applies a random normal value shift to a biomarker for a specific demographic.
+  
+  X_obs = X + N(mu, std)
+  """
+  np.random.seed(seed)
+  df_obs = df.copy()
+  
+  # Initialize observed with clean ground truth
+  df_obs[f'{biomarker}_obs'] = df_obs[biomarker].values
+  
+  # Isolate target indices
+  target_indices = df_obs[df_obs['S'] == s_target].index
+  biased_indices = np.random.choice(
+    target_indices, 
+    size=int(len(target_indices) * bias_prob), 
+    replace=False
+  )
+  
+  # Apply deterministic constant shift
+  add_bias = np.random.normal(loc=mean_shift, scale=std_shift, size=len(biased_indices))
+  df_obs.loc[biased_indices, f'{biomarker}_obs'] += add_bias
+
+  if non_negative:
+    df_obs[f'{biomarker}_obs'] = df_obs[f'{biomarker}_obs'].clip(lower=1e-3)
+  
+  return df_obs
+
 
 def apply_multiplicative_scaling_bias(df, biomarker, s_target=0, bias_prob=1.0, scale_factor=0.85, seed=4):
   """

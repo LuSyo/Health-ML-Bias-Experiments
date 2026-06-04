@@ -127,6 +127,7 @@ def disc_acc_train_val_curve(training_metrics, show=False):
   fig, ax = plt.subplots(figsize=(0.05*n_epochs+1, 3))
   sns.lineplot(x=training_metrics.index, y=training_metrics['avg_disc_bal_acc'], ax=ax, label="Training", errorbar=None)
   sns.lineplot(x=training_metrics.index+.5, y=training_metrics["avg_val_disc_bal_acc"], ax=ax, label='Validation', errorbar=None)
+  ax.set_ylim(bottom=0.35, top=0.65)
   plt.legend()
   plt.xlabel('Epoch')
   plt.ylabel('Discriminator Balanced Accuracy')
