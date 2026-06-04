@@ -134,7 +134,10 @@ def main():
       batch_size=args.batch_size,
       seed=args.seed)
 
-    test_outputs, _= test_ceveahe(model, test_loader, logger, args)
+    test_outputs, test_perf_metrics = test_ceveahe(model, test_loader, logger, args)
+
+    downstream_probe_results = pd.DataFrame(test_perf_metrics['probe_results'], index=[0])
+    downstream_probe_results.to_csv(f'{results_path}/downstream_probe_results.csv', index=False)
 
     test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')

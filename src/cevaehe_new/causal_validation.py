@@ -10,7 +10,7 @@ import pandas as pd
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, recall_score, precision_score
 
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.data_loader import make_bucketed_loader
@@ -31,10 +31,15 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   sens_flat = sens.flatten()
   subgroups = np.unique(sens_flat).astype(int)
+  threshold = target.sum()/len(target)
 
   global_auprc = []
+  global_recall = []
+  global_precision = []
   global_cf_metrics = {"bal_harm": [], "harm_pos": [], "harm_neg": []}
   subgroup_auprc = {g: [] for g in subgroups}
+  subgroup_recall = {g: [] for g in subgroups}
+  subgroup_precision = {g: [] for g in subgroups}
   subgroup_cf_metrics = {
       g: {"bal_harm": [], "harm_pos": [], "harm_neg": []} 
       for g in subgroups
@@ -55,7 +60,10 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
     
     # Factual Global Score
     y_pred_prob = probe.predict_proba(X_test)[:, 1]
+    y_pred = (y_pred_prob > threshold).astype(int)
     global_auprc.append(average_precision_score(y_test, y_pred_prob))
+    global_recall.append(recall_score(y_test, y_pred))
+    global_precision.append(precision_score(y_test, y_pred))
 
     # Global Counterfactual Harm Evaluation
     if cf_features is not None:
@@ -80,8 +88,16 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
 
       y_test_sub = y_test[subgroup_mask]
       y_pred_prob_sub = y_pred_prob[subgroup_mask] 
+      y_pred_sub = y_pred[subgroup_mask] 
 
-      subgroup_auprc[g].append(average_precision_score(y_test_sub, y_pred_prob_sub))  
+      if y_test_sub.sum() > 0:
+        subgroup_auprc[g].append(average_precision_score(y_test_sub, y_pred_prob_sub))  
+        subgroup_recall[g].append(recall_score(y_test_sub, y_pred_sub))
+      else:
+        subgroup_auprc[g].append(np.nan)
+        subgroup_recall[g].append(np.nan)
+
+      subgroup_precision[g].append(precision_score(y_test_sub, y_pred_sub))  
 
       if cf_features is not None:
         y_pred_prob_cf_sub = y_pred_prob_cf[subgroup_mask] #type: ignore
@@ -98,29 +114,37 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
 
   # AGGREGATED METRICS
   results = {
-    f"{dict_prefix}global_mean_auprc": np.mean(global_auprc),
-    f"{dict_prefix}global_std_auprc": np.std(global_auprc),
+    f"{dict_prefix}global_mean_auprc": np.nanmean(global_auprc),
+    f"{dict_prefix}global_std_auprc": np.nanstd(global_auprc),
+    f"{dict_prefix}global_mean_recall": np.nanmean(global_recall),
+    f"{dict_prefix}global_std_recall": np.nanstd(global_recall),
+    f"{dict_prefix}global_mean_precision": np.nanmean(global_precision),
+    f"{dict_prefix}global_std_precision": np.nanstd(global_precision),
   }
   
   if cf_features is not None:
-    results[f"{dict_prefix}bal_harm_mean"] = np.mean(global_cf_metrics['bal_harm'])
-    results[f"{dict_prefix}bal_harm_std"] = np.std(global_cf_metrics['bal_harm'])
-    results[f"{dict_prefix}harm_pos_mean"] = np.mean(global_cf_metrics['harm_pos'])
-    results[f"{dict_prefix}harm_pos_std"] = np.std(global_cf_metrics['harm_pos'])
-    results[f"{dict_prefix}harm_neg_mean"] = np.mean(global_cf_metrics['harm_neg'])
-    results[f"{dict_prefix}harm_neg_std"] = np.std(global_cf_metrics['harm_neg'])
+    results[f"{dict_prefix}bal_harm_mean"] = np.nanmean(global_cf_metrics['bal_harm'])
+    results[f"{dict_prefix}bal_harm_std"] = np.nanstd(global_cf_metrics['bal_harm'])
+    results[f"{dict_prefix}harm_pos_mean"] = np.nanmean(global_cf_metrics['harm_pos'])
+    results[f"{dict_prefix}harm_pos_std"] = np.nanstd(global_cf_metrics['harm_pos'])
+    results[f"{dict_prefix}harm_neg_mean"] = np.nanmean(global_cf_metrics['harm_neg'])
+    results[f"{dict_prefix}harm_neg_std"] = np.nanstd(global_cf_metrics['harm_neg'])
 
   for g in subgroups:
-    results[f'{dict_prefix}{g}_mean_auprc'] = np.mean(subgroup_auprc[g])
-    results[f'{dict_prefix}{g}_std_auprc'] = np.std(subgroup_auprc[g])
+    results[f'{dict_prefix}{g}_mean_auprc'] = np.nanmean(subgroup_auprc[g])
+    results[f'{dict_prefix}{g}_std_auprc'] = np.nanstd(subgroup_auprc[g])
+    results[f'{dict_prefix}{g}_mean_recall'] = np.nanmean(subgroup_recall[g])
+    results[f'{dict_prefix}{g}_std_recall'] = np.nanstd(subgroup_recall[g])
+    results[f'{dict_prefix}{g}_mean_precision'] = np.nanmean(subgroup_precision[g])
+    results[f'{dict_prefix}{g}_std_precision'] = np.nanstd(subgroup_precision[g])
 
     if cf_features is not None:
-      results[f"{dict_prefix}{g}_bal_harm_mean"] = np.mean(subgroup_cf_metrics[g]['bal_harm'])
-      results[f"{dict_prefix}{g}_bal_harm_std"] = np.std(subgroup_cf_metrics[g]['bal_harm'])
-      results[f"{dict_prefix}{g}_harm_pos_mean"] = np.mean(subgroup_cf_metrics[g]['harm_pos'])
-      results[f"{dict_prefix}{g}_harm_pos_std"] = np.std(subgroup_cf_metrics[g]['harm_pos'])
-      results[f"{dict_prefix}{g}_harm_neg_mean"] = np.mean(subgroup_cf_metrics[g]['harm_neg'])
-      results[f"{dict_prefix}{g}_harm_neg_std"] = np.std(subgroup_cf_metrics[g]['harm_neg'])
+      results[f"{dict_prefix}{g}_bal_harm_mean"] = np.nanmean(subgroup_cf_metrics[g]['bal_harm'])
+      results[f"{dict_prefix}{g}_bal_harm_std"] = np.nanstd(subgroup_cf_metrics[g]['bal_harm'])
+      results[f"{dict_prefix}{g}_harm_pos_mean"] = np.nanmean(subgroup_cf_metrics[g]['harm_pos'])
+      results[f"{dict_prefix}{g}_harm_pos_std"] = np.nanstd(subgroup_cf_metrics[g]['harm_pos'])
+      results[f"{dict_prefix}{g}_harm_neg_mean"] = np.nanmean(subgroup_cf_metrics[g]['harm_neg'])
+      results[f"{dict_prefix}{g}_harm_neg_std"] = np.nanstd(subgroup_cf_metrics[g]['harm_neg'])
       
   return results
 

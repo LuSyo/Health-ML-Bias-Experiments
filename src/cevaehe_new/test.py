@@ -4,7 +4,7 @@ from torch import nn
 import numpy as np
 import pandas as pd
 from metrics import get_baseline_bce
-from cevaehe_new.causal_validation import run_test_classifier
+from cevaehe_new.causal_validation import run_downstream_probe, run_test_classifier
 
 def test_ceveahe(model, test_loader, logger, args):
 
@@ -77,19 +77,22 @@ def test_ceveahe(model, test_loader, logger, args):
   
   if len(model.desc_meta) > 0:
     # Latent utility
-    mean_x_auprc, std_x_auprc = run_test_classifier(
+    
+
+    x_probe_results = run_downstream_probe(
       features=np.stack(cast(List[Any], test_outputs['x_desc'])),
-      target=test_outputs['y_true'],
-      scoring="average_precision",
-      seed=args.seed
+      target=test_outputs['y_true'].values,
+      sens=test_outputs['x_sens'].values,
+      dict_prefix="x_"
+    )
+    u_probe_results = run_downstream_probe(
+      features=np.stack(cast(List[Any], test_outputs['u_desc'])),
+      target=test_outputs['y_true'].values,
+      sens=test_outputs['x_sens'].values,
+      dict_prefix="u_"
     )
 
-    mean_u_auprc, std_u_auprc = run_test_classifier(
-      features=np.stack(cast(List[Any], test_outputs['u_desc'])),
-      target=test_outputs['y_true'],
-      scoring="average_precision",
-      seed=args.seed
-    )
+    probe_results = x_probe_results | u_probe_results
 
     # Latent S info
     mean_x_s_bal_acc, std_x_s_bal_acc = run_test_classifier(
@@ -107,34 +110,32 @@ def test_ceveahe(model, test_loader, logger, args):
     )
 
   else:
-    mean_x_auprc = 0
-    std_x_auprc = 0
-    mean_u_auprc = 0 
-    std_u_auprc = 0
     mean_x_s_bal_acc = 0
     std_x_s_bal_acc = 0
     mean_u_s_bal_acc = 0 
     std_u_s_bal_acc = 0
+    probe_results = None
 
   logger.info("----- TEST RESULTS -----")
   logger.info(f'Reconstruction loss, Xdesc: {desc_recon_L:.4f}')
   logger.info(f'Prediction loss, Y: {y_recon_L:.4f}')
-  logger.info(f'Xdesc -> Y, AUPRC: {mean_x_auprc:.4f} (std. {std_x_auprc:.4f})')
-  logger.info(f'Udesc -> Y, AUPRC: {mean_u_auprc:.4f} (std. {std_u_auprc:.4f})')
+  logger.info("-- Downstream probes: ")
+  if probe_results:
+    logger.info(f'Xdesc -> Y, Global AUPRC: {probe_results['x_global_mean_auprc']:.4f} (std. {probe_results['x_global_std_auprc']:.4f})')
+
+    logger.info(f'Udesc -> Y, Global AUPRC: {probe_results['u_global_mean_auprc']:.4f} (std. {probe_results['u_global_std_auprc']:.4f})')
+    
   logger.info(f'Xdesc -> S, Balanced Accuracy: {mean_x_s_bal_acc:.4f} (std. {std_x_s_bal_acc:.4f})')
   logger.info(f'Udesc -> S, Balanced Accuracy: {mean_u_s_bal_acc:.4f} (std. {std_u_s_bal_acc:.4f})')
 
   perf_metrics = {
     "desc_recon_loss": desc_recon_L,
     "y_recon_loss": y_recon_L,
-    "mean_x_auprc": mean_x_auprc,
-    "std_x_auprc": std_x_auprc,
-    "mean_u_auprc": mean_u_auprc,
-    "std_u_auprc": std_u_auprc,
     "mean_x_s_bal_acc": mean_x_s_bal_acc,
     "std_x_s_bal_acc": std_x_s_bal_acc,
     "mean_u_s_bal_acc": mean_u_s_bal_acc,
-    "std_u_s_bal_acc": std_u_s_bal_acc
+    "std_u_s_bal_acc": std_u_s_bal_acc,
+    "probe_results": probe_results
   }
 
   return test_outputs, perf_metrics
