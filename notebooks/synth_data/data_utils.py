@@ -107,8 +107,8 @@ def scale_dataset(df_train, df_test, minmax_features, standard_features, skewed_
   for var in minmax_features:
     x_min = df_train[var].min()
     x_max = df_train[var].max()
-    df_train_scaled[var] = (df_train[var] - x_min) / (x_max - x_min)
-    df_test_scaled[var] = (df_test[var] - x_min) / (x_max - x_min)
+    df_train_scaled[var] = (df_train[var] - x_min) / (x_max - x_min) * 3
+    df_test_scaled[var] = (df_test[var] - x_min) / (x_max - x_min) * 3
 
   df_train_scaled.reset_index(drop=True, inplace=True)
   df_test_scaled.reset_index(drop=True, inplace=True)
@@ -232,7 +232,7 @@ def apply_acuity_dependent_censoring(df, biomarker, s_target=0, bias_prob=0.8, t
   
   return df_obs
 
-def apply_constant_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, shift_val=-10.0, seed=4):
+def apply_constant_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, shift_val=-10.0, non_negative=True, seed=4):
   """
   Applies a fixed, constant value shift to a biomarker for a specific demographic.
   Simulates a baseline calibration offset in diagnostic tools across groups.
@@ -248,13 +248,16 @@ def apply_constant_additive_bias(df, biomarker, s_target=0, bias_prob=1.0, shift
   # Isolate target indices
   target_indices = df_obs[df_obs['S'] == s_target].index
   biased_indices = np.random.choice(
-      target_indices, 
-      size=int(len(target_indices) * bias_prob), 
-      replace=False
+    target_indices, 
+    size=int(len(target_indices) * bias_prob), 
+    replace=False
   )
   
   # Apply deterministic constant shift
   df_obs.loc[biased_indices, f'{biomarker}_obs'] += shift_val
+
+  if non_negative:
+    df_obs[f'{biomarker}_obs'] = df_obs[f'{biomarker}_obs'].clip(lower=1e-3)
   
   return df_obs
 

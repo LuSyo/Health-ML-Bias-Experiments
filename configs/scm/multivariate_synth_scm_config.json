@@ -1,0 +1,12 @@
+{
+  "indcorr": [
+      {"name":"biomarker_1","type":"continuous"},
+      {"name":"biomarker_3","type":"continuous"}], 
+  "desc": [
+      {"name":"biomarker_2_obs","type":"continuous"},
+      {"name":"biomarker_4_obs","type":"continuous"},
+      {"name":"biomarker_6_obs","type":"continuous"}
+    ],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"Y","type":"binary"} 
+}

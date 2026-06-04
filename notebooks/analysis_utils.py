@@ -65,9 +65,14 @@ def mutual_info_grouped(df, feature_cols, target_col, target_label, iterations=1
 
 
 def plot_cont_feature(df, feature, label, class_label, hue_label):
-  fig, axes = plt.subplots(1, 2, figsize=(16, 4))
-  sns.histplot(df, x=feature, hue=hue_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue=class_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes[1])
+  layout = """
+    AB
+    CC
+    """
+  fig, axes = plt.subplot_mosaic(layout, figsize=(16, 9))
+  sns.histplot(df, x=feature, hue=hue_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes['A'])
+  sns.histplot(df, x=feature, hue=class_label, bins=50, common_norm=False, multiple='dodge', kde=True, stat='probability', ax=axes['B'])
+  sns.histplot(df, x=feature, bins=50, kde=True, stat='probability', ax=axes['C'])
   fig.suptitle(f'Probability distribution of {label}', fontsize=16)
   plt.show()
 
