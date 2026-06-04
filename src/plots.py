@@ -23,8 +23,8 @@ def train_val_recon_loss_curve(training_metrics, show=False, sens_groups=2):
   y_lim = 0
 
   for g in range(sens_groups):
-    avg_train_recon_loss = training_metrics[f"avg_group_{g}_loss"]
-    avg_val_recon_loss = training_metrics[f"avg_val_group_{g}_loss"]
+    avg_train_recon_loss = training_metrics[f"avg_group_{g}_y_recon_loss"]
+    avg_val_recon_loss = training_metrics[f"avg_val_group_{g}_y_recon_loss"]
     y_lim = max(np.max(avg_train_recon_loss[10:]) + 0.2, np.max(avg_val_recon_loss[10:]) + 0.2, y_lim)
 
     sns.lineplot(x=training_metrics.index, y=avg_train_recon_loss, ax=axes[g], label='Train Reconstruction Loss', errorbar=None)
