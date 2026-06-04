@@ -101,15 +101,24 @@ class CEVAEHE(nn.Module):
     )
 
     # Discriminator
-    self.discriminator = nn.Sequential(
-      spectral_norm(nn.Linear(self.ud_dim, self.h_dim)),
-      nn.LeakyReLU(0.2, True),
-      spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
-      nn.LeakyReLU(0.2, True),
-      spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
-      nn.LeakyReLU(0.2, True),
-      nn.Linear(self.h_dim, 1)
-    )
+    if self.ud_dim == 1:
+      # Shallow, unconstrained architecture for 1D scalar inputs
+      self.discriminator = nn.Sequential(
+          nn.Linear(self.ud_dim, self.h_dim),
+          nn.LeakyReLU(0.2, True),
+          nn.Linear(self.h_dim, 1)
+      )
+    else:
+      # Deep, regularized architecture for higher-dimensional spaces
+      self.discriminator = nn.Sequential(
+          spectral_norm(nn.Linear(self.ud_dim, self.h_dim)),
+          nn.LeakyReLU(0.2, True),
+          spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
+          nn.LeakyReLU(0.2, True),
+          spectral_norm(nn.Linear(self.h_dim, self.h_dim)),
+          nn.LeakyReLU(0.2, True),
+          nn.Linear(self.h_dim, 1)
+      )
 
     self.init_params()
 
