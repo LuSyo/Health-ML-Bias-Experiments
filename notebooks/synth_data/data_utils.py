@@ -98,8 +98,8 @@ def scale_dataset(df_train, df_test, minmax_features, standard_features, skewed_
 
   # Log Standardisation
   for var in skewed_features:
-    log_mu = np.log1p(df_train[var]).mean()
-    log_sigma = np.log1p(df_train[var]).std()
+    log_mu = np.log(df_train[var]).mean()
+    log_sigma = np.log(df_train[var]).std()
     df_train_scaled[var] = (np.log(df_train[var]) - log_mu) / log_sigma
     df_test_scaled[var] = (np.log(df_test[var]) - log_mu) / log_sigma
 

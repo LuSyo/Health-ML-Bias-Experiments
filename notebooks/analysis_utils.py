@@ -5,6 +5,26 @@ import seaborn as sns
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.utils import resample
 
+def format_probe_results(results, groups):
+  columns = [c.removeprefix("u_") for c in results.filter(regex="u_.*").columns]
+  formatted_results = pd.DataFrame(columns=["probe"], data=["x", "u"])
+  for col in columns:
+    melted_subresults = results.melt(value_vars=[f"x_{col}", f"u_{col}"], value_name=col, var_name="probe")
+    melted_subresults['probe'] = melted_subresults['probe'].str[0]
+    formatted_results = formatted_results.merge(melted_subresults, on="probe", how="outer")
+  formatted_results.set_index("probe", inplace=True)
+  formatted_results.sort_index(ascending=False, inplace=True)
+
+  def format_score(score):
+    return round(score*100, 2)
+
+  global_results = formatted_results.filter(regex="global_.*").apply(format_score)
+  group_results = []
+  for g in groups:
+    group_results.append(formatted_results.filter(regex=f"{g}_.*").apply(format_score))
+
+  return global_results, group_results
+
 def mutual_info_with_sens(X, Y, target_label, iterations=100, n_samples=None, seed=4):
   mi_results = []
 
