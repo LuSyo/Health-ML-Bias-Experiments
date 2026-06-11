@@ -99,3 +99,27 @@ class ZeroInflatedConditionalScaler(BaseEstimator, TransformerMixin):
       # Guarantee zero remains structurally absolute
       X_df.loc[~active_mask, col] = 0.0
     return X_df
+
+def frequency_matched_sample(df, target_col, strata_cols):
+  """
+  Performs 1:1 matching within each combined demographic and ethnic stratum.
+  """
+  matched_data = []
+  
+  # Group by Sex, Age, AND Ethnicity to ensure 1:1 matching within every subgroup
+  for strata_values, group in df.groupby(strata_cols, observed=True):
+    cases = group[group[target_col] == 1]
+    controls = group[group[target_col] == 0]
+    
+    # Determine the number of pairs possible for this specific subgroup
+    n_match = min(len(cases),len(controls))
+    
+    if n_match > 0:
+      # Randomly sample to achieve 1:1 ratio
+      sampled_cases = cases.sample(n_match, random_state=42)
+      sampled_controls = controls.sample(n_match, random_state=42)
+      
+      matched_data.append(sampled_cases)
+      matched_data.append(sampled_controls)
+          
+  return pd.concat(matched_data).reset_index(drop=True)
