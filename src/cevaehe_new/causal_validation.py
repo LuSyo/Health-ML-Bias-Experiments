@@ -164,7 +164,8 @@ def run_test_classifier(features, target, scoring="average_precision",seed=4):
   cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
   audit_rf = RandomForestClassifier(
       n_estimators=300,
-      min_samples_leaf=5,
+      min_samples_leaf=2,
+      class_weight="balanced_subsample",
       random_state=seed
   )
   scores = cross_val_score(audit_rf, features, target, cv=cv, scoring=scoring)
