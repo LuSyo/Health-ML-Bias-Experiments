@@ -4,6 +4,19 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.utils import resample
+from scipy.stats import entropy
+from scipy.spatial.distance import mahalanobis, jensenshannon
+from tableone import TableOne
+
+def print_table_1(dataset, continuous_cols, categorical_cols):
+  table1 = TableOne(dataset,
+                    groupby='sex',
+                    continuous=continuous_cols,
+                    categorical=categorical_cols,
+                    missing=False
+                    )
+
+  print(table1.tabulate())
 
 def format_probe_results(results, groups):
   columns = [c.removeprefix("u_") for c in results.filter(regex="u_.*").columns]
@@ -161,3 +174,249 @@ def plot_cf_cat_feature_comparison(df, feature_col, cf_feature_col, sens_col, ta
   axes[0, 1].set_xlabel(f"{feature_col} for S group 0, positive target")
   axes[1, 1].set_xlabel(f"{feature_col} for S group 1, positive target")
   plt.show()
+
+
+def analyse_cont_features_disparity(df, continuous_cols, sens_col='sex', label_col='cvd'):
+  """
+  Computes stratified continuous feature variances, conditional variances,
+  and the Mahalanobis Distance between demographic subgroups.
+  """
+  
+  print("="*60)
+  print(" 1. RAW FEATURE VARIANCE BY GROUP")
+  print("="*60)
+  global_var = df.groupby(sens_col)[continuous_cols].var()
+  print(global_var)
+  
+  print("\n" + "="*60)
+  print(" 2. CONDITIONAL VARIANCE DISPARITY (stratified by target)")
+  print("="*60)
+  conditional_var = df.groupby([sens_col, label_col])[continuous_cols].var()
+  print(conditional_var)
+  
+  # 3. Compute Multivariate Disparity via Mahalanobis Distance
+  print("\n" + "="*60)
+  print(" 3. MULTIVARIATE DISTANCE (Mahalanobis Distance between Groups)")
+  print("="*60)
+  
+  # Split datasets
+  group_0 = df[df[sens_col] == 0][continuous_cols]
+  group_1 = df[df[sens_col] == 1][continuous_cols]
+  
+  # Calculate pooled inverse covariance matrix
+  cov_0 = np.cov(group_0.values.T)
+  cov_1 = np.cov(group_1.values.T)
+  # weighted average of the two covariance matrices based on the sample size of each subgroup
+  pooled_cov = (cov_0 * len(group_0) + cov_1 * len(group_1)) / (len(group_0) + len(group_1))
+  inv_pooled_cov = np.linalg.inv(pooled_cov)
+  
+  mean_0 = group_0.mean().values
+  mean_1 = group_1.values.mean(axis=0)
+  
+  m_dist = mahalanobis(mean_0, mean_1, inv_pooled_cov)
+  print(f"Overall Mahalanobis Distance between Group 0 and Group 1: {m_dist:.4f}")
+  
+  # Stratified Mahalanobis for conditional confounding analysis
+  for target in df[label_col].unique():
+    sub_g0 = df[(df[sens_col] == 0) & (df[label_col] == target)][continuous_cols]
+    sub_g1 = df[(df[sens_col] == 1) & (df[label_col] == target)][continuous_cols]
+    
+    p_cov = (np.cov(sub_g0.values.T) * len(sub_g0) + np.cov(sub_g1.values.T) * len(sub_g1)) / (len(sub_g0) + len(sub_g1))
+    inv_p_cov = np.linalg.inv(p_cov)
+    
+    m_dist_strat = mahalanobis(sub_g0.mean().values, sub_g1.mean().values, inv_p_cov)
+    print(f" -> Mahalanobis Distance given CVD={target}: {m_dist_strat:.4f}")
+
+def compute_multivariate_categorical_jsd(df, categorical_cols, protected_col='sex', label_col='cvd'):
+  """
+  Computes a single, global Multivariate Jensen-Shannon Divergence 
+  across the joint distribution of all categorical features.
+  """
+  
+  print("="*70)
+  print(" MULTIVARIATE JOINT JENSEN-SHANNON DIVERGENCE")
+  print(" (Evaluates interactions and combinations across all categorical features)")
+  print("="*70)
+  
+  # Step 1: Serialize the combinations into a single string/tuple representation
+  # This creates a composite 'joint feature' representing the multivariate state
+  df_joint = df.copy()
+  df_joint['joint_state'] = df_joint[categorical_cols].astype(str).agg('-'.join, axis=1)
+  all_possible_states = sorted(df_joint['joint_state'].unique())
+  
+  # Helper to calculate normalized probability vector for a given dataframe subset
+  def get_joint_probability_vector(sub_df):
+    counts = sub_df['joint_state'].value_counts(normalize=True)
+    # Map to a static vector aligned across all possible states
+    return np.array([counts.get(state, 0.0) for state in all_possible_states])
+  
+  # Compute Global Multivariate Disparity
+  p_global = get_joint_probability_vector(df_joint[df_joint[protected_col] == 0])
+  q_global = get_joint_probability_vector(df_joint[df_joint[protected_col] == 1])
+  
+  jsd_global = jensenshannon(p_global, q_global)
+  print(f"Global Multivariate JSD (Female vs Male): {jsd_global:.4f}")
+  
+  # Compute Stratified Multivariate Disparity (Conditional Causal Check)
+  print("\nStratified by Clinical Outcome (CVD):")
+  for target in sorted(df_joint[label_col].unique()):
+    g0_strat = df_joint[(df_joint[protected_col] == 0) & (df_joint[label_col] == target)]
+    g1_strat = df_joint[(df_joint[protected_col] == 1) & (df_joint[label_col] == target)]
+    
+    p_strat = get_joint_probability_vector(g0_strat)
+    q_strat = get_joint_probability_vector(g1_strat)
+    
+    jsd_strat = jensenshannon(p_strat, q_strat)
+    print(f" -> Given CVD={target}: Multivariate JSD = {jsd_strat:.4f}")
+
+def compute_mixed_interaction_mahalanobis(df, continuous_subs, categorical_subs, sens_col='sex'):
+  """
+  Computes Mahalanobis Distance between protected groups, stratified by 
+  the joint-states of a targeted subselection of categorical variables.
+  """
+  print("="*80)
+  print(" STRATIFIED MULTIVARIATE MAHALANOBIS VIA CATEGORICAL JOINT-STATES")
+  print("="*80)
+  
+  df_mixed = df.copy()
+
+  # Create the joint categorical state string
+  df_mixed['cat_state'] = df_mixed[categorical_subs].astype(str).agg('-'.join, axis=1)
+  
+  unique_states = df_mixed['cat_state'].unique()
+  
+  for state in unique_states:
+    # Isolate the specific categorical subgroup
+    sub_df = df_mixed[df_mixed['cat_state'] == state]
+    
+    g0 = sub_df[sub_df[sens_col] == 0][continuous_subs]
+    g1 = sub_df[sub_df[sens_col] == 1][continuous_subs]
+    
+    # Enforce a minimum sample size check to prevent singular covariance matrices
+    if len(g0) < len(continuous_subs) + 1 or len(g1) < len(continuous_subs) + 1:
+        print(f"Category State [{state}]: Skipped due to insufficient sample size (Females: {len(g0)}, Males: {len(g1)})")
+        continue
+        
+    # Compute pooled covariance and regularized pseudo-inverse
+    cov_0 = np.cov(g0.values.T)
+    cov_1 = np.cov(g1.values.T)
+    pooled_cov = (cov_0 * len(g0) + cov_1 * len(g1)) / (len(g0) + len(g1))
+    
+    # Handle 1D array cases if only one continuous variable is passed
+    if len(continuous_subs) == 1:
+        mean_diff = abs(g0.mean().iloc[0] - g1.mean().iloc[0])
+        pooled_variance = pooled_cov if isinstance(pooled_cov, (int, float)) else pooled_cov.item()
+        
+        if pooled_variance > 0:
+            m_dist = mean_diff / np.sqrt(pooled_variance)
+        else:
+            m_dist = 0.0
+    else:
+        inv_pooled_cov = np.linalg.pinv(pooled_cov)
+        m_dist = mahalanobis(g0.mean().values, g1.mean().values, inv_pooled_cov)
+        
+    print(f"Category State [{state}] -> Continuous Mahalanobis Distance: {m_dist:.4f} (n_female={len(g0)}, n_male={len(g1)})")
+
+def compute_subgroup_entropy(df, continuous_subs, categorical_subs, sens_col="sex", n_bootstrap=200, seed=4):
+  """
+  COmputes internal consistency using normalised joint Shannon entropy after continuous feature binning
+  """
+  np.random.seed(seed)
+  
+  print("="*75)
+  print(" MULTIVARIATE ENTROPY-BASED CONSISTENCY (1 = Purely Predictable/Consistent)")
+  print("="*75)
+
+  df_entropy = df.copy()
+
+  # Bin the continuous features
+  binned_cols = []
+  for col in continuous_subs:
+    bin_name = f"{col}_binned"
+    df_entropy[bin_name] = pd.qcut(df_entropy[col], q=5, labels=False)
+    binned_cols.append(bin_name)
+
+  all_target_cols = categorical_subs + binned_cols
+  df_entropy['joint_state'] = df_entropy[all_target_cols].astype(str).agg('-'.join, axis=1)
+
+  # Identify the minority
+  counts = df_entropy[sens_col].value_counts()
+  minority_val = counts.idxmin()
+  majority_val = counts.idxmax()
+  
+  n_minority = counts.min()
+
+  def get_raw_entropy(series):
+    probs = series.value_counts(normalize=True)
+    return entropy(probs, base=2)
+
+  # Minority entropy
+  minority_series = df_entropy[df_entropy[sens_col] == minority_val]['joint_state']
+  entropy_minority = get_raw_entropy(minority_series)
+
+  # Majority bootstrapped entropy, drawing minority-sized subsamples of the majority 
+  majority_pool = df_entropy[df_entropy[sens_col] == majority_val]['joint_state'].values
+  bootstrapped_entropies = []
+  
+  for _ in range(n_bootstrap):
+    sample = np.random.choice(majority_pool, size=n_minority, replace=False)
+    bootstrapped_entropies.append(get_raw_entropy(pd.Series(sample)))
+
+  entropy_majority_corrected = np.mean(bootstrapped_entropies)
+  entropy_majority_std = np.std(bootstrapped_entropies)
+
+  # Final summary
+  unique_global_states = df_entropy['joint_state'].nunique()
+  max_entropy = np.log2(unique_global_states) if unique_global_states > 1 else 1.0
+
+  norm_entropy_minority = entropy_minority / max_entropy
+  norm_entropy_majority = entropy_majority_corrected / max_entropy
+
+  print("="*70)
+  print(" BIAS-CORRECTED MULTIVARIATE ENTROPY AUDIT")
+  print("="*70)
+  print(f"Minority Subgroup [{sens_col}={minority_val}] (True n={n_minority}):")
+  print(f" -> True Joint Shannon Entropy : {entropy_minority:.4f} bits")
+  print(f" -> Empirical Consistency Score : {1.0 - norm_entropy_minority:.4f}")
+  
+  print(f"\nMajority Subgroup [{sens_col}={majority_val}] (Sample-Size Matched to n={n_minority}):")
+  print(f" -> Mean Bootstrapped Entropy  : {entropy_majority_corrected:.4f} bits (±{entropy_majority_std:.4f})")
+  print(f" -> Empirical Consistency Score : {1.0 - norm_entropy_majority:.4f}")
+  print("="*70)
+
+def cat_features_jsd(df, categorical_cols, sens_col='sex', label_col='cvd'):
+  """
+  Computes Jensen-Shannon Divergence for categorical features 
+  between demographic groups, stratified by the disease target.
+  """
+  
+  print("="*60)
+  print(" JENSEN-SHANNON DIVERGENCE FOR CATEGORICAL DISPARITY")
+  print(" (0 = Identical Distributions, 1 = Complete Disparity)")
+  print("="*60)
+  
+  for col in categorical_cols:
+    print(f"\nFeature: [{col}]")
+    
+    # Global Disparity
+    p_ch = df[df[sens_col] == 0][col].value_counts(normalize=True)
+    q_ch = df[df[sens_col] == 1][col].value_counts(normalize=True)
+    
+    # Align indexes to ensure missing categories match zeros
+    all_cats = sorted(list(set(df[col].dropna().unique())))
+    p = np.array([p_ch.get(cat, 0.0) for cat in all_cats])
+    q = np.array([q_ch.get(cat, 0.0) for cat in all_cats])
+    
+    js_global = jensenshannon(p, q)
+    print(f" -> Global JS Divergence (Female vs Male): {js_global:.4f}")
+    
+    # Stratified Disparity (Causal Confounding Check)
+    for target in sorted(df[label_col].unique()):
+      sub_0 = df[(df[sens_col] == 0) & (df[label_col] == target)][col].value_counts(normalize=True)
+      sub_1 = df[(df[sens_col] == 1) & (df[label_col] == target)][col].value_counts(normalize=True)
+      
+      p_strat = np.array([sub_0.get(cat, 0.0) for cat in all_cats])
+      q_strat = np.array([sub_1.get(cat, 0.0) for cat in all_cats])
+      
+      js_strat = jensenshannon(p_strat, q_strat)
+      print(f"    -> Given CVD={target}: JS Divergence = {js_strat:.4f}")
