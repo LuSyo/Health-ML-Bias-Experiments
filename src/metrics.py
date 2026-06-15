@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from typing import cast
 from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, confusion_matrix, brier_score_loss, average_precision_score
 from sklearn.cross_decomposition import CCA
 from scipy.stats import entropy
@@ -7,8 +8,6 @@ from scipy.stats import entropy
 def calculate_performance_metrics(y_true, y_pred, y_prob):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     return {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'roc_auc': roc_auc_score(y_true, y_prob),
         'auprc': average_precision_score(y_true, y_prob),
         'fnr': fn / (fn + tp) if (fn + tp) > 0 else np.nan,
         'fpr': fp / (fp + tn) if (fp + tn) > 0 else np.nan,
@@ -74,7 +73,7 @@ def avg_perf_per_patient(y_true, y_pred_prob, y_cf_pred_prob, sens, patient_inde
         'sens': sens
       })
 
-    avg_results: pd.DataFrame = test_results.groupby('patient_index').mean()
+    avg_results = cast(pd.DataFrame, test_results.groupby('patient_index').mean())
 
     y_pred_avg = (avg_results['y_pred_prob'] >= threshold).astype(int)
 
@@ -197,15 +196,28 @@ def calculate_counterfactual_harm(y_true, y_pred_prob, y_pred_cf_prob):
     neg_mask = (y_true == 0)
 
     # Harm to the sick: Risk is LOWER in counterfactual (Under-diagnosis)
-    harm_pos = np.mean(np.maximum(0, y_pred_prob[pos_mask] - y_pred_cf_prob[pos_mask]))
+    if np.sum(pos_mask) > 0:
+        harm_pos = float(np.mean(np.maximum(0, y_pred_prob[pos_mask] - y_pred_cf_prob[pos_mask])))
+    else:
+        harm_pos = np.nan
 
     # Harm to the healthy: Risk is HIGHER in counterfactual (Over-diagnosis)
-    harm_neg = np.mean(np.maximum(0, y_pred_cf_prob[neg_mask] - y_pred_prob[neg_mask]))
+    if np.sum(neg_mask) > 0:
+        harm_neg = float(np.mean(np.maximum(0, y_pred_cf_prob[neg_mask] - y_pred_prob[neg_mask])))
+    else:
+        harm_neg = np.nan
 
     # Balanced Harm metric
-    balanced_harm = (harm_pos + harm_neg) / 2
+    if not np.isnan(harm_pos) and not np.isnan(harm_neg):
+        balanced_harm = (harm_pos + harm_neg) / 2.0
+    else:
+        balanced_harm = np.nan
 
-    return balanced_harm, harm_pos, harm_neg
+    return {
+        'cf_harm_balanced': balanced_harm,
+        'cf_harm_pos': harm_pos,
+        'cf_harm_neg': harm_neg
+    }
 
 def get_baseline_bce(target_np, weighted=False):
     prevalence = np.mean(target_np)
@@ -257,7 +269,7 @@ def compute_group_entropies(X, x_map, x_sens, n_bootstrap=200, seed=4):
         raw_g_entropy = entropy(probs, base=2)
 
         # sample bias correction (Miller-Madow using K+ to avoid the empty bins flaw)
-        counts = g_series.value_counts()
+        _, counts = np.unique(g_series, return_counts=True)
         K_pos_g = len(counts)
 
         miller_madow_correction = (K_pos_g - 1) / (2 * N_g)

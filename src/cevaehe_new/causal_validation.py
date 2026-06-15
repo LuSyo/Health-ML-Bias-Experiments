@@ -70,14 +70,14 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
       X_test_cf = cf_features[test_idx]
       y_pred_prob_cf = probe.predict_proba(X_test_cf)[:, 1]
       
-      bal_cf_harm, harm_pos, harm_neg = calculate_counterfactual_harm(
+      global_cf_harm = calculate_counterfactual_harm(
         y_test,
         y_pred_prob,
         y_pred_prob_cf
       )
-      global_cf_metrics["bal_harm"].append(bal_cf_harm)
-      global_cf_metrics["harm_pos"].append(harm_pos)
-      global_cf_metrics["harm_neg"].append(harm_neg)
+      global_cf_metrics["bal_harm"].append(global_cf_harm['cf_harm_balanced'])
+      global_cf_metrics["harm_pos"].append(global_cf_harm['cf_harm_pos'])
+      global_cf_metrics["harm_neg"].append(global_cf_harm['cf_harm_neg'])
     
     # Stratified evaluation
     for g in subgroups:
@@ -102,14 +102,14 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
       if cf_features is not None:
         y_pred_prob_cf_sub = y_pred_prob_cf[subgroup_mask] #type: ignore
         
-        sub_bal_harm, sub_harm_pos, sub_harm_neg = calculate_counterfactual_harm(
+        sub_cf_harm = calculate_counterfactual_harm(
             y_test_sub,
             y_pred_prob_sub,
             y_pred_prob_cf_sub
         )
-        subgroup_cf_metrics[g]["bal_harm"].append(sub_bal_harm)
-        subgroup_cf_metrics[g]["harm_pos"].append(sub_harm_pos)
-        subgroup_cf_metrics[g]["harm_neg"].append(sub_harm_neg)   
+        subgroup_cf_metrics[g]["bal_harm"].append(sub_cf_harm['cf_harm_balanced'])
+        subgroup_cf_metrics[g]["harm_pos"].append(sub_cf_harm['cf_harm_pos'])
+        subgroup_cf_metrics[g]["harm_neg"].append(sub_cf_harm['cf_harm_neg'])   
     
 
   # AGGREGATED METRICS

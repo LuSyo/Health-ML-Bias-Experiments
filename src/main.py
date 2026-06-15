@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import gc
+from sklearn.model_selection import train_test_split
 
 from config import Config
 from utils import parse_args, load_config, set_global_seeds, setup_logger
@@ -9,6 +10,8 @@ from cevaehe_new.data_loader import make_bucketed_loader
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.train import train_cevaehe
 from cevaehe_new.test import test_ceveahe, generate_fair_dataset
+from classifiers.train import find_threshold_at_target_ppv, prepare_datasets, initial_hyperparam_tuning, train_random_forest
+from classifiers.eval import eval_classifiers
 from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve, grad_curve
 
 def main():
@@ -50,7 +53,7 @@ def main():
     # Load the feature mapping
     feature_mapping = load_config(args.mapping)
 
-    # TRAINING Data loaders
+    # TRAINING SPLIT, sub training and val Data loaders
     train_loader, val_loader = make_bucketed_loader(
       training_dataset, 
       feature_mapping,
@@ -67,6 +70,10 @@ def main():
     
     logger.info(f'U_desc dimension: {model.ud_dim}')
     logger.info('='*30)
+
+    # ===========================================
+    # CEVAE-HE TRAINING & VAL 
+    # =========================================== 
     
     training_log, train_results = train_cevaehe(
       model,
@@ -123,7 +130,96 @@ def main():
 
       strat_latent_dist_params.to_markdown(f'{results_path}/stratified_latent_dist_params.txt', index=False)
 
-    ### UNSEEN DATA: TEST RESULTS AND LATENT/CF GENERATION
+    # ======================================================
+    # GENERATE LATENTS and CFs on PIPELINE TRAINING SPLIT
+    # ======================================================
+
+    logger.info('===> Generating TRAINING latent and counterfactual datasets')
+    datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
+    os.makedirs(datasets_path, exist_ok=True)
+
+    train_counterfactuals_df, train_latent_spaces_df = generate_fair_dataset(model, training_dataset, feature_mapping, args)
+    train_counterfactuals_df.to_csv(f'{datasets_path}/train_counterfactuals.csv', index=False)
+    train_latent_spaces_df.to_csv(f'{datasets_path}/train_latent_space.csv', index=False)
+
+    # ===========================================
+    # CLASSIFIERS TRAINING on SUB TRAINING SET
+    # ===========================================
+    logger.info('===> Training classifiers')
+
+    target_col = feature_mapping['target']['name']
+
+    sub_train_idx, sub_val_idx = train_test_split(
+      training_dataset.index.to_numpy(),
+      test_size=0.2,
+      stratify=training_dataset[target_col].to_numpy(),
+      random_state=args.seed
+    ) 
+
+    sub_train_patient_indices = np.asarray(sub_train_idx)
+    sub_val_patient_indices = np.asarray(sub_val_idx)
+
+    classifier_training_datasets = prepare_datasets(
+      patient_indices=sub_train_patient_indices,
+      base_df=training_dataset,
+      latents_df=train_latent_spaces_df,
+      cf_df=train_counterfactuals_df,
+      feature_mapping=feature_mapping
+    )
+
+    classifier_val_datasets = prepare_datasets(
+      patient_indices=sub_val_patient_indices,
+      base_df=training_dataset,
+      latents_df=train_latent_spaces_df,
+      cf_df=train_counterfactuals_df,
+      feature_mapping=feature_mapping
+    )
+
+    trained_classifiers = {}
+    frozen_classification_thresholds = {}
+
+    # ------------------------------
+    # Initial hyperparameter tuning
+    # ------------------------------
+    logger.info("Performing initial hyperparameter tuning on baseline features...")
+    X_tune = classifier_training_datasets["baseline"]["X"]
+    y_tune = classifier_training_datasets["baseline"]["y"]
+    best_params = initial_hyperparam_tuning(X_tune, y_tune, seed=args.seed)
+    logger.info(f"Locked downstream hyperparameters: {best_params}")
+
+    # ------------------------------
+    # Training
+    # ------------------------------
+    for model_key in classifier_training_datasets.keys():
+      logger.info(f"Training classifier: {model_key}")
+
+      X_train = classifier_training_datasets[model_key]["X"]
+      y_train = classifier_training_datasets[model_key]["y"]
+
+      rf = train_random_forest(X_train, y_train, best_params, seed=args.seed)
+
+      # ----------------------------
+      # Set classification threshold
+      # ----------------------------
+      X_val = classifier_val_datasets[model_key]["X"]
+      y_val = classifier_val_datasets[model_key]["y"]
+
+      y_val_prob = np.asarray(rf.predict_proba(X_val))[:, 1]
+
+      fixed_tau = find_threshold_at_target_ppv(
+        y_true=y_val,
+        y_probs=y_val_prob,
+        target_ppv=args.target_ppv
+      )
+
+      trained_classifiers[model_key] = rf
+      frozen_classification_thresholds[model_key] = fixed_tau
+
+      logger.info(f"Model [{model_key}] trained successfully. Calibrated Validation Threshold: {fixed_tau:.4f}")
+
+    # ===========================================
+    # RUN CEVAE-HE on PIPELINE TEST SPLIT
+    # ===========================================
     set_global_seeds(args.seed)
     
     # TEST Data loader
@@ -136,25 +232,50 @@ def main():
 
     test_outputs, test_perf_metrics = test_ceveahe(model, test_loader, logger, args)
 
-    downstream_probe_results = pd.DataFrame(test_perf_metrics['probe_results'], index=[0])
-    downstream_probe_results.to_csv(f'{results_path}/downstream_probe_results.csv', index=False)
-
     test_u_clustering_analysis_fig = u_clustering_analysis(test_outputs)
     test_u_clustering_analysis_fig.savefig(f'{results_path}/test_u_clustering_analysis.png', bbox_inches='tight')
 
-    # Generate counterfactual and latent space datasets (fair dataset)
-    logger.info('Saving latent and counterfactual datasets...')
-    datasets_path = f'{Config.DATA_DIR}/{args.exp_name}'
-    os.makedirs(datasets_path, exist_ok=True)
+    # ======================================================
+    # GENERATE LATENTS and CFs on PIPELINE TEST SPLIT
+    # ======================================================
+    logger.info('===> Generating TEST latent and counterfactual datasets')
 
     test_counterfactuals_df, test_latent_spaces_df = generate_fair_dataset(model, test_dataset, feature_mapping, args)
     test_counterfactuals_df.to_csv(f'{datasets_path}/test_counterfactuals.csv', index=False)
     test_latent_spaces_df.to_csv(f'{datasets_path}/test_latent_space.csv', index=False)
 
-    train_counterfactuals_df, train_latent_spaces_df = generate_fair_dataset(model, training_dataset, feature_mapping, args)
-    train_counterfactuals_df.to_csv(f'{datasets_path}/train_counterfactuals.csv', index=False)
-    train_latent_spaces_df.to_csv(f'{datasets_path}/train_latent_space.csv', index=False)
+    # ======================================================
+    # BOOTSTRAPPED EVALUATION OF DOWNSTREAM CLASSIFIERS
+    # ======================================================
+    logger.info('===> Preparing test datasets for downstream evaluation')
 
+    test_patient_indices = test_dataset.index.to_numpy()
+
+    classifier_test_datasets = prepare_datasets(
+      patient_indices=test_patient_indices,
+      base_df=test_dataset,
+      latents_df=test_latent_spaces_df,
+      cf_df=test_counterfactuals_df,
+      feature_mapping=feature_mapping
+    )
+
+    n_boot = args.n_bootstraps
+    logger.info(f'===> Running bootstrapped fairness audit ({n_boot} iterations)...')
+
+    bootstrapped_results_df = eval_classifiers(
+      classifiers=trained_classifiers,
+      test_datasets=classifier_test_datasets,
+      class_thresholds=frozen_classification_thresholds,
+      n_bootstraps=n_boot,
+      seed=args.seed
+    )
+
+    eval_csv_out = f'{results_path}/bootstrapped_evaluation_results.csv'
+    bootstrapped_results_df.to_csv(eval_csv_out, index=False)
+    logger.info(f'Bootstrapped metrics successfully exported to {eval_csv_out}')
+
+    
+    # ========== CLEAN UP ===========
     del test_counterfactuals_df, test_latent_spaces_df
     del train_counterfactuals_df, train_latent_spaces_df
     del model

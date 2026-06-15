@@ -39,7 +39,7 @@ class Config:
 
   # Classifier training params
   M_SAMPLES = 3
-  N_RUNS = 50
+  N_BOOTSTRAPS = 1000
 
   # SPS params
   SPS_ITER = 20

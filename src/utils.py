@@ -60,10 +60,10 @@ def parse_args():
   parser.add_argument('--gradnorm_gamma', type=float, default=Config.GRADNORM_GAMMA)
 
   # Latent space sampling
-  parser.add_argument('--m_samples', type=str, default=Config.M_SAMPLES)
+  parser.add_argument('--m_samples', type=int, default=Config.M_SAMPLES)
 
   # Classifier bootstrap training
-  parser.add_argument('--n_runs', type=int, default=Config.N_RUNS)
+  parser.add_argument('--n_bootstraps', type=int, default=Config.N_BOOTSTRAPS)
   parser.add_argument('--target_ppv', type=float, default=0.9)
 
   return parser.parse_args()
