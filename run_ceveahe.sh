@@ -20,7 +20,8 @@ python3 src/main.py \
   --distill_warm_up 0 \
   --batch_size 32 \
   --n_bootstraps 1000 \
-  --target_ppv 0.75 \
+  --target_recall 0.9 \
+  --target_metric "recall" \
   --m_samples 5
 
 

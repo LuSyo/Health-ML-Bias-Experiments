@@ -65,6 +65,8 @@ def parse_args():
   # Classifier bootstrap training
   parser.add_argument('--n_bootstraps', type=int, default=Config.N_BOOTSTRAPS)
   parser.add_argument('--target_ppv', type=float, default=0.9)
+  parser.add_argument('--target_recall', type=float, default=0.9)
+  parser.add_argument('--target_metric', type=str, default="recall")
 
   return parser.parse_args()
 

@@ -24,6 +24,8 @@ def eval_classifiers(
   """
 
   rng = np.random.default_rng(seed)
+  
+  all_bootstrap_results = []
 
   for model_key, rf in classifiers.items():
     dataset = test_datasets[model_key]
@@ -51,8 +53,6 @@ def eval_classifiers(
 
     # create list of patients' prediction results
     patient_records = eval_df.to_dict(orient="records")
-
-    all_bootstrap_results = []
 
     for b in range(n_bootstraps):
       bootstrap_indices = rng.choice(n_patients, size=n_patients, replace=True)
@@ -86,7 +86,7 @@ def eval_classifiers(
         all_bootstrap_results.append({
           "model": model_key,
           "bootstrap_idx": b,
-          "subgroup": group_id
+          "subgroup": f"Group {int(group_id)}"
         } | group_perf_metrics | group_cf_harm)
 
   return pd.DataFrame(all_bootstrap_results)

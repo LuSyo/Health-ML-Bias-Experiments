@@ -10,7 +10,7 @@ from cevaehe_new.data_loader import make_bucketed_loader
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.train import train_cevaehe
 from cevaehe_new.test import test_ceveahe, generate_fair_dataset
-from classifiers.train import find_threshold_at_target_ppv, prepare_datasets, initial_hyperparam_tuning, train_random_forest
+from classifiers.train import find_threshold_at_target_ppv, find_threshold_at_target_recall, prepare_datasets, initial_hyperparam_tuning, train_random_forest, get_feat_imp
 from classifiers.eval import eval_classifiers
 from plots import train_val_recon_loss_curve, disc_tc_loss_curve, all_VAE_losses_curve, u_clustering_analysis, disc_acc_train_val_curve, grad_curve
 
@@ -199,6 +199,15 @@ def main():
       rf = train_random_forest(X_train, y_train, best_params, seed=args.seed)
 
       # ----------------------------
+      # Save feature importances
+      # ----------------------------
+      importance_df = get_feat_imp(
+        rf.feature_importances_,
+        classifier_training_datasets[model_key]["features"]
+      )
+      importance_df.to_csv(f'{results_path}/{model_key}_feat_imp.csv')
+
+      # ----------------------------
       # Set classification threshold
       # ----------------------------
       X_val = classifier_val_datasets[model_key]["X"]
@@ -206,11 +215,18 @@ def main():
 
       y_val_prob = np.asarray(rf.predict_proba(X_val))[:, 1]
 
-      fixed_tau = find_threshold_at_target_ppv(
-        y_true=y_val,
-        y_probs=y_val_prob,
-        target_ppv=args.target_ppv
-      )
+      if args.target_metric == "recall":
+        fixed_tau = find_threshold_at_target_recall(
+          y_true=y_val,
+          y_probs=y_val_prob,
+          target_recall=args.target_recall
+        )
+      else:
+        fixed_tau = find_threshold_at_target_ppv(
+          y_true=y_val,
+          y_probs=y_val_prob,
+          target_ppv=args.target_ppv
+        )
 
       trained_classifiers[model_key] = rf
       frozen_classification_thresholds[model_key] = fixed_tau

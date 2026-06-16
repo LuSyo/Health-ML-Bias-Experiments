@@ -93,6 +93,27 @@ def find_threshold_at_target_ppv(y_true, y_probs, target_ppv, epsilon=0.05):
       return float(current_tau)
           
   return float(thresholds[valid_indices[0]])
+
+def find_threshold_at_target_recall(y_true: np.ndarray, y_probs: np.ndarray, target_recall: float) -> float:
+  """
+  Finds a stable classification threshold by looking ahead to sustain a target Recall.
+  """
+  y_true_arr = np.asarray(y_true)
+  y_probs_arr = np.asarray(y_probs)
+
+  _, recalls, thresholds = precision_recall_curve(y_true_arr, y_probs_arr)
+  
+  # Locate all indices where recall meets or exceeds our target safety constraint
+  # (Recalls are sorted in descending order)
+  valid_indices = np.where(recalls >= target_recall)[0]
+  valid_indices = valid_indices[valid_indices < len(thresholds)]
+  
+  if len(valid_indices) == 0:
+    return float(thresholds[0])
+      
+  # Pick the highest threshold in that range to maximize precision
+  chosen_idx = valid_indices[-1]
+  return float(thresholds[chosen_idx])
   
 
 def prepare_datasets(
@@ -154,7 +175,8 @@ def prepare_datasets(
     "sens": sub_base[x_sens_col].to_numpy(),
     "patient_index": sub_base.index.to_numpy(),
     "cf_sens": cf_sens_arr,
-    "cf_patient_index": cf_patient_arr
+    "cf_patient_index": cf_patient_arr,
+    "features": baseline_features
   }
 
   datasets["baseline_unaware"] = {
@@ -164,7 +186,8 @@ def prepare_datasets(
     "sens": sub_base[x_sens_col].to_numpy(),
     "patient_index": sub_base.index.to_numpy(),
     "cf_sens": cf_sens_arr,
-    "cf_patient_index": cf_patient_arr
+    "cf_patient_index": cf_patient_arr,
+    "features": baseline_unaware_features
   }
 
   datasets["ablation"] = {
@@ -174,7 +197,8 @@ def prepare_datasets(
     "sens": sub_base[x_sens_col].to_numpy(),
     "patient_index": sub_base.index.to_numpy(),
     "cf_sens": cf_sens_arr,
-    "cf_patient_index": cf_patient_arr
+    "cf_patient_index": cf_patient_arr,
+    "features": ablation_features
   }
 
   datasets["fair"] = {
@@ -184,7 +208,8 @@ def prepare_datasets(
     "sens": merged_fair[x_sens_col].to_numpy(),
     "patient_index": merged_fair["patient_index"].to_numpy(),
     "cf_sens": cf_fair_sens_arr,
-    "cf_patient_index": fair_cf["patient_index"].to_numpy()
+    "cf_patient_index": fair_cf["patient_index"].to_numpy(),
+    "features": fair_features
   }
 
   datasets["fair_unaware"] = {
@@ -194,7 +219,20 @@ def prepare_datasets(
     "sens": merged_fair[x_sens_col].to_numpy(),
     "patient_index": merged_fair["patient_index"].to_numpy(),
     "cf_sens": cf_fair_sens_arr,
-    "cf_patient_index": fair_cf["patient_index"].to_numpy()
+    "cf_patient_index": fair_cf["patient_index"].to_numpy(),
+    "features": fair_unaware_features
   }
 
   return datasets
+
+def get_feat_imp(feat_imp, feat_names):
+  avg_importances = np.mean(feat_imp, axis=0)
+  std_importances = np.std(feat_imp, axis=0)
+
+  importance_df = pd.DataFrame({
+    'feature': feat_names,
+    'importance_mean': avg_importances,
+    'importance_std': std_importances
+  }).sort_values(by='importance_mean', ascending=False)
+
+  return importance_df

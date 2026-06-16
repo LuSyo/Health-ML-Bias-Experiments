@@ -1,0 +1,18 @@
+{
+  "indcorr": [
+    {"name":"chol","type":"continuous"},
+    {"name":"bp","type":"continuous"}
+  ], 
+  "desc": [
+      {"name":"age","type":"continuous"},
+      {"name":"ecg","type":"categorical","n":3},
+      {"name":"slope","type":"categorical", "n":3},
+      {"name":"fbs","type":"binary"},
+      {"name":"cp","type":"categorical", "n":4},
+      {"name":"mhr","type":"continuous"},
+      {"name":"ang","type":"binary"},
+      {"name":"st","type":"continuous"}
+  ],
+  "sens": [{"name":"sex","type":"binary"}], 
+  "target": {"name":"cvd","type":"binary"} 
+}
