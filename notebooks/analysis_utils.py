@@ -8,9 +8,9 @@ from scipy.stats import entropy
 from scipy.spatial.distance import mahalanobis, jensenshannon
 from tableone import TableOne
 
-def print_table_1(dataset, continuous_cols, categorical_cols):
+def print_table_1(dataset, continuous_cols, categorical_cols, groupby='sex'):
   table1 = TableOne(dataset,
-                    groupby='sex',
+                    groupby=groupby,
                     continuous=continuous_cols,
                     categorical=categorical_cols,
                     missing=False
@@ -113,8 +113,11 @@ def plot_cont_feature(df, feature, label, class_label, hue_label):
 
 def plot_cat_feature(df, feature, label, class_label, hue_label):
   fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-  sns.histplot(df, x=df[feature].astype(int), hue=hue_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[0])
-  sns.histplot(df, x=feature, hue=class_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[1])
+  # sns.histplot(df, x=df[feature].astype(int), hue=hue_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[0])
+  # sns.histplot(df, x=feature, hue=class_label, common_norm=False, multiple='dodge', discrete=True, stat='probability', ax=axes[1])
+  sns.countplot(df, x=feature, stat="probability", hue=hue_label, ax=axes[0])
+  sns.countplot(df, x=feature, stat="probability", hue=class_label, ax=axes[1])
+
   fig.suptitle(f'Probability distribution of {label}', fontsize=16)
   plt.show()
 
