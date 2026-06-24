@@ -8,6 +8,17 @@ from scipy.stats import entropy
 from scipy.spatial.distance import mahalanobis, jensenshannon
 from tableone import TableOne
 
+class CustPalette:
+  primary="#2945ad"
+  primary_med="#6882db"
+  primary_light="#a9b9f0"
+  primary_x_light="#d7e0ff"
+  secondary="#ff3477"
+  secondary_light="#ff84ad"
+  secondary_x_light="#ffb4cd"
+  tertiary="#26cc90"
+  grey_light='#cbd5e1'
+
 def print_table_1(dataset, continuous_cols, categorical_cols, groupby='sex'):
   table1 = TableOne(dataset,
                     groupby=groupby,

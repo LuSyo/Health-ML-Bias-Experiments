@@ -1,0 +1,17 @@
+{
+  "indcorr": [
+    {"name":"age","type":"continuous"},
+    {"name":"bmi","type":"continuous"},
+    {"name":"residence_type","type":"binary"},
+    {"name":"hypertension","type":"binary"},
+    {"name":"ever_married","type":"binary"},
+    {"name":"smoking_status","type":"categorical", "n":3}
+  ], 
+  "desc": [
+    {"name":"heart_disease","type":"binary"},
+    {"name":"work_type","type":"categorical", "n":5},
+    {"name":"avg_glucose_level","type":"continuous"}
+  ],
+  "sens": [{"name":"gender","type":"binary"}], 
+  "target": {"name":"stroke","type":"binary"} 
+}
