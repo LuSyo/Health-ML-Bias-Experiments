@@ -106,7 +106,7 @@ def frequency_matched_sample(df, target_col, strata_cols):
   """
   matched_data = []
   
-  # Group by Sex, Age, AND Ethnicity to ensure 1:1 matching within every subgroup
+  # Group by strata to ensure 1:1 matching within every subgroup
   for strata_values, group in df.groupby(strata_cols, observed=True):
     cases = group[group[target_col] == 1]
     controls = group[group[target_col] == 0]
