@@ -327,7 +327,7 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
     }
 
     for j in range(n_cross_val):
-      logger.info(f'Iteration #{i+1}/{args.sps_iter}')
+      logger.info(f'Iteration #{i+1}/{len(random_configs)}')
       logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
       boot_dataset = dataset.sample(frac=1.0, axis=0, random_state=args.seed + j)
       iteration_results = _audit_pathway_config(boot_dataset, current_mapping, i, j,features, logger, args)

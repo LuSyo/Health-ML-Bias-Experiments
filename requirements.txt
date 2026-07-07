@@ -7,3 +7,5 @@ seaborn
 tqdm
 missingno
 tableone
+plotly 
+nbformat
