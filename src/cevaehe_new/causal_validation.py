@@ -10,7 +10,8 @@ import pandas as pd
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.metrics import average_precision_score, recall_score, precision_score
+from sklearn.metrics import average_precision_score, recall_score, precision_score, f1_score
+from fairlearn.metrics import equalized_odds_difference
 
 from cevaehe_new.model import CEVAEHE
 from cevaehe_new.data_loader import make_bucketed_loader
@@ -36,10 +37,13 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
   global_auprc = []
   global_recall = []
   global_precision = []
+  global_eod = []
+  global_f1 = []
   global_cf_metrics = {"bal_harm": [], "harm_pos": [], "harm_neg": []}
   subgroup_auprc = {g: [] for g in subgroups}
   subgroup_recall = {g: [] for g in subgroups}
   subgroup_precision = {g: [] for g in subgroups}
+  subgroup_f1 = {g: [] for g in subgroups}
   subgroup_cf_metrics = {
       g: {"bal_harm": [], "harm_pos": [], "harm_neg": []} 
       for g in subgroups
@@ -59,16 +63,22 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
     probe.fit(X_train, y_train)
     
     # Factual Global Score
-    y_pred_prob = probe.predict_proba(X_test)[:, 1]
+    y_pred_prob = probe.predict_proba(X_test)[:, 1] #type: ignore
     y_pred = (y_pred_prob > threshold).astype(int)
     global_auprc.append(average_precision_score(y_test, y_pred_prob))
     global_recall.append(recall_score(y_test, y_pred))
     global_precision.append(precision_score(y_test, y_pred))
+    global_f1.append(f1_score(y_test, y_pred))
+    global_eod.append(equalized_odds_difference(
+      y_test, y_pred,
+      sensitive_features=s_test,
+      method="between_groups",
+      agg="worst_case"))
 
     # Global Counterfactual Harm Evaluation
     if cf_features is not None:
       X_test_cf = cf_features[test_idx]
-      y_pred_prob_cf = probe.predict_proba(X_test_cf)[:, 1]
+      y_pred_prob_cf = probe.predict_proba(X_test_cf)[:, 1] #type: ignore
       
       global_cf_harm = calculate_counterfactual_harm(
         y_test,
@@ -97,7 +107,8 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
         subgroup_auprc[g].append(np.nan)
         subgroup_recall[g].append(np.nan)
 
-      subgroup_precision[g].append(precision_score(y_test_sub, y_pred_sub))  
+      subgroup_precision[g].append(precision_score(y_test_sub, y_pred_sub))   
+      subgroup_f1[g].append(f1_score(y_test_sub, y_pred_sub))   
 
       if cf_features is not None:
         y_pred_prob_cf_sub = y_pred_prob_cf[subgroup_mask] #type: ignore
@@ -120,6 +131,10 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
     f"{dict_prefix}global_std_recall": np.nanstd(global_recall),
     f"{dict_prefix}global_mean_precision": np.nanmean(global_precision),
     f"{dict_prefix}global_std_precision": np.nanstd(global_precision),
+    f"{dict_prefix}global_mean_f1": np.nanmean(global_f1),
+    f"{dict_prefix}global_std_f1": np.nanstd(global_f1),
+    f"{dict_prefix}global_mean_eod": np.nanmean(global_eod),
+    f"{dict_prefix}global_std_eod": np.nanstd(global_eod),
   }
   
   if cf_features is not None:
@@ -137,6 +152,8 @@ def run_downstream_probe(features, target, sens, dict_prefix="", cf_features=Non
     results[f'{dict_prefix}{g}_std_recall'] = np.nanstd(subgroup_recall[g])
     results[f'{dict_prefix}{g}_mean_precision'] = np.nanmean(subgroup_precision[g])
     results[f'{dict_prefix}{g}_std_precision'] = np.nanstd(subgroup_precision[g])
+    results[f'{dict_prefix}{g}_mean_f1'] = np.nanmean(subgroup_f1[g])
+    results[f'{dict_prefix}{g}_std_f1'] = np.nanstd(subgroup_f1[g])
 
     if cf_features is not None:
       results[f"{dict_prefix}{g}_bal_harm_mean"] = np.nanmean(subgroup_cf_metrics[g]['bal_harm'])
@@ -428,10 +445,33 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       seed = args.seed
     )
 
+    # S probes
+    mean_x_s_bal_acc, std_x_s_bal_acc = run_test_classifier(
+      features=all_x_desc_np,
+      target=all_x_sens_np.ravel(),
+      scoring="balanced_accuracy",
+      seed=args.seed
+    )
+
+    mean_u_s_bal_acc, std_u_s_bal_acc = run_test_classifier(
+      features=all_u_desc_np,
+      target=all_x_sens_np.ravel(),
+      scoring="balanced_accuracy",
+      seed=args.seed
+    )
+
+    sens_probe_results = {
+      "mean_x_s_bal_acc": mean_x_s_bal_acc,
+      "std_x_s_bal_acc": std_x_s_bal_acc,
+      "mean_u_s_bal_acc": mean_u_s_bal_acc,
+      "std_u_s_bal_acc": std_u_s_bal_acc,
+    }
+
   else:
     u_results = {}
     x_results = {}
     abla_results = {}
+    sens_probe_results = {}
 
   results = []
   for feature in features:
@@ -444,7 +484,7 @@ def sps_test_ceveahe(model, test_loader, features, desc_features, iteration, run
       "bucket": "x_desc" if feature in desc_features else "x_corr",
       "y_prevalence": y_prevalence,
       "s_prevalence": s_prevalence
-    } | u_results | x_results | abla_results)
+    } | u_results | x_results | abla_results | sens_probe_results)
 
   return results
 

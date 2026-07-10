@@ -434,3 +434,72 @@ def cat_features_jsd(df, categorical_cols, sens_col='sex', label_col='cvd'):
       
       js_strat = jensenshannon(p_strat, q_strat)
       print(f"    -> Given CVD={target}: JS Divergence = {js_strat:.4f}")
+
+def min_max_scale(series, invert=False):
+  denom = series.max() - series.min()
+  if denom == 0:
+    return np.ones_like(series) if invert else np.zeros_like(series)
+  if invert:
+    return (series.max() - series) / denom
+  return (series - series.min()) / denom
+
+def get_pareto_frontier(audit_df, s_metrics, minimise, condition=(lambda x: True)):
+  pareto_audit_df = audit_df.sort_values(s_metrics[0], ascending=minimise[0])
+  
+  pareto_frontier = []
+
+  if minimise[1]:
+    min_metric_1 = 1
+    
+    for idx, solution in pareto_audit_df.iterrows():
+      if solution[s_metrics[1]] < min_metric_1 and condition(solution):
+        pareto_frontier.append(solution)
+        min_metric_1 = solution[s_metrics[1]]
+
+  else:
+    max_metric_1 = 0
+
+    for idx, solution in pareto_audit_df.iterrows():
+      if solution[s_metrics[1]] > max_metric_1 and condition(solution):
+        pareto_frontier.append(solution)
+        max_metric_1 = solution[s_metrics[1]]
+
+  return pd.DataFrame(pareto_frontier)
+
+def plot_pareto_frontier(pareto_frontier_df, audit_df, s_metrics, labels, original_scm=None):
+  s_metric_0, s_metric_1 = s_metrics
+
+  fig, ax = plt.subplots(figsize=(12, 6))
+  sns.lineplot(data=pareto_frontier_df, x=s_metric_0, y=s_metric_1, color="green", marker='', linestyle="--", errorbar=None, ax=ax)
+  sns.scatterplot(data=audit_df, x=s_metric_0, y=s_metric_1, ax=ax)
+
+  if original_scm:
+    sns.scatterplot(data=audit_df.loc[[original_scm]], color='#a12aa5', s=100, x=s_metric_0, y=s_metric_1, ax=ax)
+
+  for idx, row in pareto_frontier_df.iterrows():
+        ax.annotate(
+          str(idx),                      
+          (row[s_metric_0], row[s_metric_1]), 
+          textcoords="offset points",    
+          xytext=(-10, 5),                 
+          ha='left',
+          va='bottom',  
+          fontsize=9, 
+          fontweight='bold', 
+          color='#a12aa5'
+          )  
+
+
+  plt.xlabel(labels[0])
+  plt.ylabel(labels[1])
+  legend_labels = [ 
+                    'Pareto frontier', 
+                    'CEVAE-HE result for each pathway configuration in the audit'
+  ]
+  if original_scm:
+    legend_labels.append('Original SCM')
+
+  plt.legend(labels=legend_labels,
+            loc='upper left', bbox_to_anchor=(0, -0.1), edgecolor="white")
+
+  return fig

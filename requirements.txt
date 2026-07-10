@@ -9,3 +9,4 @@ missingno
 tableone
 plotly 
 nbformat
+fairlearn
