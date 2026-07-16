@@ -268,54 +268,64 @@ def run_sps_bootstrap(dataset, feature_mapping, logger, args):
   targeted_pathways = feature_mapping.get('targeted_pathways', [])
   seen_keys = set()
 
+  # SPS mode: set min and max soc pathway size
+  max_dim = len(features)
+  min_dim = 1
+  if args.sps_mode == "normal":
+    min_dim = 4
+  elif args.sps_mode == "low":
+    max_dim = 3
+
   # establish baseline with all features in Xdesc
-  baseline_mapping = {
-    'desc': features,
-    'indcorr': feature_mapping['ind'],
-    'sens': feature_mapping['sens'],
-    'target': feature_mapping['target']
-  }
-  baseline_key = _get_config_key([])
-  seen_keys.add(baseline_key)
-
-  for j in range(n_cross_val):
-    logger.info(f'BASELINE CONFIG')
-    logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
-    boot_dataset = dataset.sample(frac=1.0, axis=0, random_state=args.seed + j)
-    baseline_run_results = _audit_pathway_config(boot_dataset, baseline_mapping, -1, j,features, logger, args)
-    baseline_results.extend(baseline_run_results)
-
-  # TARGETED PATHWAYS
-  for i, tp in enumerate(targeted_pathways):
-    config_name = tp.get('name', f"targeted_{i}")
-
-    current_mapping = {
-      'desc': tp["desc"],
-      'indcorr': tp["indcorr"],
+  if len(features) >= min_dim and len(features) <= max_dim:
+    baseline_mapping = {
+      'desc': features,
+      'indcorr': feature_mapping['ind'],
       'sens': feature_mapping['sens'],
       'target': feature_mapping['target']
     }
+    baseline_key = _get_config_key([])
+    seen_keys.add(baseline_key)
 
     for j in range(n_cross_val):
-      logger.info(f"Running targeted pathway: {config_name}")
+      logger.info(f'BASELINE CONFIG')
       logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
       boot_dataset = dataset.sample(frac=1.0, axis=0, random_state=args.seed + j)
-      tp_results = _audit_pathway_config(boot_dataset, current_mapping, config_name, j, features, logger, args)
-      results.extend(tp_results)
+      baseline_run_results = _audit_pathway_config(boot_dataset, baseline_mapping, -1, j,features, logger, args)
+      baseline_results.extend(baseline_run_results)
 
-    seen_keys.add(_get_config_key(tp['desc']))
+  # TARGETED PATHWAYS
+  for i, tp in enumerate(targeted_pathways):
+    if len(tp["desc"]) >= min_dim and len(tp["desc"]) <= max_dim:
+      config_name = tp.get('name', f"targeted_{i}")
+
+      current_mapping = {
+        'desc': tp["desc"],
+        'indcorr': tp["indcorr"],
+        'sens': feature_mapping['sens'],
+        'target': feature_mapping['target']
+      }
+
+      for j in range(n_cross_val):
+        logger.info(f"Running targeted pathway: {config_name}")
+        logger.info(f"Bootstrap #{j+1}/{n_cross_val}")
+        boot_dataset = dataset.sample(frac=1.0, axis=0, random_state=args.seed + j)
+        tp_results = _audit_pathway_config(boot_dataset, current_mapping, config_name, j, features, logger, args)
+        results.extend(tp_results)
+
+      seen_keys.add(_get_config_key(tp['desc']))
 
   # Pre-generate unique configurations
   random_configs = []
   attempts = 0
   max_attempts = args.sps_iter * 100
 
-  while len(random_configs) < args.sps_iter and attempts < max_attempts:
+  while len(random_configs) < args.sps_iter and attempts < max_attempts and min_dim < max_dim:
     attempts += 1
     
     # Shuffle and partition
     shuffled = random.sample(features, len(features))
-    split_point = random.randint(1, len(shuffled)- 1)
+    split_point = random.randint(min_dim, max_dim - 1)
     
     current_desc = shuffled[:split_point]
     current_corr = shuffled[split_point:]

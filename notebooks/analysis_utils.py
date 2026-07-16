@@ -1,3 +1,4 @@
+import ast
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -503,3 +504,24 @@ def plot_pareto_frontier(pareto_frontier_df, audit_df, s_metrics, labels, origin
             loc='upper left', bbox_to_anchor=(0, -0.1), edgecolor="white")
 
   return fig
+
+def count_feature_appearance(df, feature_name, column_name="Xdesc config"):
+  def check_contains(val):
+    if pd.isna(val):
+        return False
+    
+    # If the data is stored as strings, safely parse it into a real Python set
+    if isinstance(val, str):
+        try:
+            val = ast.literal_eval(val)
+        except (ValueError, SyntaxError):
+            # Fallback: exact substring check if parsing fails
+            return f"'{feature_name}'" in val or f'"{feature_name}"' in val
+            
+    # Check if the feature exists in the set/list
+    if isinstance(val, (set, list, tuple)):
+        return feature_name in val
+        
+    return False
+
+  return df[column_name].apply(check_contains).sum()

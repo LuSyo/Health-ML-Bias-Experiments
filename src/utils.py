@@ -35,6 +35,7 @@ def parse_args():
   # SPS audit
   parser.add_argument('--sps_epochs', type=int, default=Config.SPS_EPOCHS) # DELETE
   parser.add_argument('--sps_iter', type=int, default=Config.SPS_ITER)
+  parser.add_argument('--sps_mode', type=str, default=Config.SPS_MODE)
 
   # Training
   parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)

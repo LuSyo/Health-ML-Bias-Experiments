@@ -44,4 +44,5 @@ class Config:
   # SPS params
   SPS_ITER = 20
   SPS_EPOCHS = 100
+  SPS_MODE = "full"
   
