@@ -57,6 +57,44 @@
         {"name":"obs_soc_6","type":"continuous"}
       ],
       "name": "INVERTED SCM"
+    },
+    {
+      "desc": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"bio_3","type":"continuous"},
+        {"name":"bio_4","type":"continuous"},
+        {"name":"bio_5","type":"continuous"},
+        {"name":"bio_6","type":"continuous"},
+        {"name":"obs_soc_1","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"},
+        {"name":"obs_soc_3","type":"continuous"}
+      ],
+      "indcorr": [
+        {"name":"obs_soc_4","type":"continuous"},
+        {"name":"obs_soc_5","type":"continuous"},
+        {"name":"obs_soc_6","type":"continuous"}
+      ],
+      "name": "ACCESS BIAS ONLY"
+    },
+    {
+      "desc": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"bio_3","type":"continuous"},
+        {"name":"bio_4","type":"continuous"},
+        {"name":"bio_5","type":"continuous"},
+        {"name":"bio_6","type":"continuous"},
+        {"name":"obs_soc_4","type":"continuous"},
+        {"name":"obs_soc_5","type":"continuous"},
+        {"name":"obs_soc_6","type":"continuous"}
+      ],
+      "indcorr": [
+        {"name":"obs_soc_1","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"},
+        {"name":"obs_soc_3","type":"continuous"}
+      ],
+      "name": "MEAS. BIAS ONLY"
     }
   ]
 }

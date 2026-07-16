@@ -45,6 +45,51 @@
         {"name":"obs_soc_4","type":"continuous"}
       ],
       "name": "INVERTED SCM"
+    },
+    {
+      "indcorr": [
+        {"name":"obs_soc_1","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"},
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"bio_3","type":"continuous"},
+        {"name":"bio_4","type":"continuous"}
+      ],
+      "desc": [
+        {"name":"obs_soc_3","type":"continuous"},
+        {"name":"obs_soc_4","type":"continuous"}
+      ],
+      "name": "ACCESS BIAS ONLY"
+    },
+    {
+      "indcorr": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"bio_3","type":"continuous"},
+        {"name":"bio_4","type":"continuous"},
+        {"name":"obs_soc_3","type":"continuous"},
+        {"name":"obs_soc_4","type":"continuous"}
+      ],
+      "desc": [
+        {"name":"obs_soc_1","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"}
+      ],
+      "name": "MEAS. BIAS ONLY"
+    },
+    {
+      "indcorr": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_3","type":"continuous"},
+        {"name":"obs_soc_1","type":"continuous"},
+        {"name":"obs_soc_4","type":"continuous"}
+      ],
+      "desc": [
+        {"name":"bio_2","type":"continuous"},
+        {"name":"bio_4","type":"continuous"},
+        {"name":"obs_soc_3","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"}
+      ],
+      "name": "RANDOM ANCHOR"
     }
   ]
 }

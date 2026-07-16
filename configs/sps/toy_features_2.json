@@ -33,6 +33,28 @@
         {"name":"obs_soc_2","type":"continuous"}
       ],
       "name": "INVERTED SCM"
+    },
+    {
+      "desc": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"obs_soc_2","type":"continuous"}
+      ],
+      "indcorr": [
+        {"name":"obs_soc_1","type":"continuous"}
+      ],
+      "name": "ACCESS BIAS ONLY"
+    },
+    {
+      "desc": [
+        {"name":"bio_1","type":"continuous"},
+        {"name":"bio_2","type":"continuous"},
+        {"name":"obs_soc_1","type":"continuous"}
+      ],
+      "indcorr": [
+        {"name":"obs_soc_2","type":"continuous"}
+      ],
+      "name": "MEAS. BIAS ONLY"
     }
   ]
 }
