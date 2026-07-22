@@ -1,0 +1,18 @@
+{
+  "indcorr": [
+    {"name":"bio_1","type":"continuous"},
+    {"name":"bio_2","type":"continuous"},
+    {"name":"bio_3","type":"continuous"},
+    {"name":"ind_1","type":"continuous"},
+    {"name":"ind_2","type":"continuous"},
+    {"name":"obs_soc_2","type":"continuous"}
+  ], 
+  "desc": [
+    {"name":"bio_4","type":"continuous"},
+    {"name":"obs_soc_1","type":"continuous"},
+    {"name":"obs_soc_3","type":"continuous"},
+    {"name":"obs_soc_4","type":"continuous"}
+  ],
+  "sens": [{"name":"S","type":"binary"}], 
+  "target": {"name":"Y","type":"binary"} 
+}
