@@ -20,6 +20,13 @@ class CustPalette:
   tertiary="#26cc90"
   grey_light='#cbd5e1'
 
+class ModelLabels:
+  baseline = 'Baseline (Full)'
+  baseline_unaware = 'Baseline (S-blind)'
+  ablation = 'Baseline (Xbio & Xind only)'
+  fair = 'Fair (S-aware)'
+  fair_unaware = 'Fair (S-blind)'
+
 def print_table_1(dataset, continuous_cols, categorical_cols, groupby='sex'):
   table1 = TableOne(dataset,
                     groupby=groupby,
@@ -525,3 +532,16 @@ def count_feature_appearance(df, feature_name, column_name="Xdesc config"):
     return False
 
   return df[column_name].apply(check_contains).sum()
+
+def heatmap_df(df, heatmap_cols, vmin=0.0, vmax=100.0, cmap="YlGnBu", perc=True):
+  styled_df = df.copy()
+
+  styler = (
+    styled_df.style.background_gradient(
+      cmap=cmap, subset=heatmap_cols, vmin=vmin, vmax=vmax
+    )
+    .format({col: "{:.2f}" for col in heatmap_cols})
+    .hide(axis="index")
+  )
+
+  return styler
